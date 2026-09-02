@@ -1,11 +1,11 @@
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from app.core.config import Settings
 
 
 def test_mock_settings_do_not_require_external_credentials() -> None:
-    settings = Settings(app_env="test")
+    settings = Settings(app_env="test", openai_api_key=None)
     assert settings.commerce_provider == "mock"
     assert settings.crm_provider == "mock"
     assert settings.openai_api_key is None
@@ -25,7 +25,9 @@ def test_integration_modes_require_credentials(overrides: dict[str, str], expect
 
 def test_settings_repr_masks_secrets() -> None:
     secret = "settings-secret-canary"
-    settings = Settings(app_env="test", postgres_password=secret, openai_api_key=secret)
+    settings = Settings(
+        app_env="test", postgres_password=SecretStr(secret), openai_api_key=SecretStr(secret)
+    )
     assert secret not in repr(settings)
 
 
@@ -34,9 +36,9 @@ def test_enabled_integration_modes_accept_complete_credentials() -> None:
         app_env="test",
         commerce_provider="shopify",
         shopify_store_domain="synthetic.myshopify.com",
-        shopify_access_token="synthetic-token",
+        shopify_access_token=SecretStr("synthetic-token"),
         crm_provider="hubspot",
-        hubspot_access_token="synthetic-token",
+        hubspot_access_token=SecretStr("synthetic-token"),
     )
     assert settings.commerce_provider == "shopify"
     assert settings.crm_provider == "hubspot"
@@ -50,5 +52,5 @@ def test_exact_provider_environment_names_are_supported(monkeypatch: pytest.Monk
 
 
 def test_database_url_encodes_password_characters() -> None:
-    settings = Settings(app_env="test", postgres_password="synthetic:p@ss/word")
+    settings = Settings(app_env="test", postgres_password=SecretStr("synthetic:p@ss/word"))
     assert "synthetic%3Ap%40ss%2Fword" in settings.database_url

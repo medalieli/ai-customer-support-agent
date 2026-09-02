@@ -22,6 +22,12 @@ Protected assets are customer/order data, tenant separation, provider/LLM creden
 
 Additional risks include staff privilege abuse (RBAC, reason capture, review/audit), CSRF/session theft (secure HttpOnly SameSite cookies, CSRF token, short sessions/MFA for staff), XSS (escaped Markdown/URL allowlist/CSP), SSRF (adapter egress allowlist and no user URLs), denial of service/cost abuse (rate/token/tool budgets, queues/circuit breakers), supply-chain risk (lockfiles/scanning/SBOM), and audit tampering (append-only DB role, hash chaining and export).
 
+## M2 controls implemented
+
+M2 derives organization/customer identity only from a high-entropy cookie whose full value is SHA-256 hashed in PostgreSQL. Customer repositories require organization and customer IDs from the authenticated principal; staff access requires an active tenant membership. Composite foreign keys prevent tenant-mismatched conversations, messages, assignments and knowledge versions. Conversation authorization returns a uniform 404 and records a content-free denial event. Audit metadata is allowlisted and a database trigger rejects update/delete. Demo personas are allowlisted synthetic identities, require an explicit flag and password, and production settings reject demo mode or non-Secure cookies.
+
+M2 does not yet add CSRF tokens, login rate limits, MFA/OIDC, encrypted message bodies, key rotation or a separate non-owner database role. The last item means local Compose's database owner can bypass RLS; service/repository scoping is mandatory there, while deployments must use a `NOSUPERUSER NOBYPASSRLS` runtime role. These hardening items remain M15 gates.
+
 ## Data and model privacy
 
 Send the model only the minimum conversation window and redacted tool facts needed for the current intent. Do not request/store chain-of-thought. Store structured decision reason codes and customer-visible explanations instead. Vendor data-processing and retention settings require review before Integration Mode beyond test data. Synthetic fixtures must be visibly tagged and contain no copied real identities.

@@ -10,6 +10,27 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg17-bookworm
+        env:
+          POSTGRES_DB: novacart
+          POSTGRES_USER: novacart
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U novacart -d novacart"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      NOVACART_APP_ENV: test
+      NOVACART_POSTGRES_HOST: localhost
+      NOVACART_POSTGRES_DB: novacart
+      NOVACART_POSTGRES_USER: novacart
+      NOVACART_POSTGRES_PASSWORD: ci-only-password
+      NOVACART_DEMO_AUTH_ENABLED: "true"
+      NOVACART_DEMO_STAFF_PASSWORD: synthetic-demo-password
+      NOVACART_RUN_DB_TESTS: "1"
     defaults:
       run:
         working-directory: backend
@@ -22,6 +43,9 @@ jobs:
           cache-dependency-path: backend/pyproject.toml
       - run: python -m pip install --upgrade pip==25.2
       - run: python -m pip install -e ".[dev]"
+      - run: alembic upgrade head
+      - run: python -m app.seed
+      - run: python -m app.seed
       - run: ruff format --check .
       - run: ruff check .
       - run: mypy app tests

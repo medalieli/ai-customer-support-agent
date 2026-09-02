@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     redis_password: SecretStr | None = None
     redis_connect_timeout_seconds: float = Field(default=3.0, gt=0, le=30)
 
+    demo_auth_enabled: bool = False
+    demo_staff_password: SecretStr | None = None
+    session_ttl_seconds: int = Field(default=3600, ge=300, le=2592000)
+    session_cookie_name: str = "novacart_session"
+    session_cookie_secure: bool = False
+    session_cookie_samesite: Literal["lax", "strict"] = "lax"
+
     commerce_provider: Literal["mock", "shopify"] = Field(
         default="mock",
         validation_alias=AliasChoices("COMMERCE_PROVIDER", "NOVACART_COMMERCE_PROVIDER"),
@@ -62,6 +69,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_provider_credentials(self) -> "Settings":
+        if self.app_env == "production" and self.demo_auth_enabled:
+            raise ValueError("Demo authentication cannot be enabled in production")
+        if self.demo_auth_enabled and not self.demo_staff_password:
+            raise ValueError("Demo authentication requires a demo staff password")
+        if self.app_env == "production" and not self.session_cookie_secure:
+            raise ValueError("Production session cookies must be secure")
         if self.commerce_provider == "shopify" and not (
             self.shopify_store_domain and self.shopify_access_token
         ):

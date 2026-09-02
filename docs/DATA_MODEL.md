@@ -7,7 +7,8 @@ UUIDs are internal; provider identifiers are opaque and unique only within `(org
 ```mermaid
 erDiagram
   ORGANIZATION ||--o{ CUSTOMER : has
-  ORGANIZATION ||--o{ STAFF_USER : employs
+  ORGANIZATION ||--o{ ORGANIZATION_MEMBERSHIP : authorizes
+  STAFF_USER ||--o{ ORGANIZATION_MEMBERSHIP : holds
   ORGANIZATION ||--o{ CONVERSATION : owns
   CUSTOMER o|--o{ CONVERSATION : starts
   CONVERSATION ||--o{ MESSAGE : contains
@@ -30,7 +31,8 @@ erDiagram
 |---|---|
 | `Organization` | `id`, slug, status, default locale/timezone, provider configuration references, retention/policy settings. Secrets are not stored here. |
 | `Customer` | `id`, `organization_id`, encrypted/minimized profile, locale, auth subject, normalized provider links. Unique auth subject per tenant; external refs never authenticate. |
-| `StaffUser` | `id`, `organization_id`, auth subject, status; many-to-many roles (`support_agent`, `support_manager`, `sales`, `admin`, `auditor`) with least-privilege permissions. |
+| `StaffUser` | Global login identity with `id`, unique normalized email, Argon2 password hash and status. M2 organization access is exclusively through active membership rows. |
+| `OrganizationMembership` | Composite `(organization_id, staff_user_id)` key, explicit `support|admin` role and status. M2 intentionally implements only the two approved local roles. |
 | `Conversation` | `id`, tenant, optional customer, channel/locale, ownership `ai|staff`, assigned staff, status, latest checkpoint, summary ref/version. Ownership transitions are controlled/audited. |
 | `Message` | `id`, tenant/conversation, immutable sender type/ref, locale, visible content or encrypted reference, timestamp, reply-to, delivery status. Staff notes are explicitly non-customer-visible. |
 | `ToolRun` | `id`, tenant/conversation/run, tool/schema version, actor, sanitized request/result refs, risk, timestamps, outcome/error, idempotency key hash, provider correlation. No hidden reasoning. |
@@ -44,6 +46,8 @@ erDiagram
 | `Citation` | `id`, tenant, message, chunk, claim/character anchor, displayed label/link, validator result/version. Cannot cite an unapproved or cross-tenant chunk. |
 
 Supporting records include `ProviderLink`, `OrderProjection`, `ConsentRecord`, `RefundDecision`, `Job/DLQ`, `Role/Permission`, and LangGraph checkpoint tables. `ConsentRecord` binds purpose/version to evidence; `RefundDecision` stores reason codes, facts hash and policy version.
+
+M2 implements document/version/chunk metadata but deliberately defers chunk text, embeddings and citations to the RAG milestone. It stores no authoritative orders. PostgreSQL RLS policies default-deny tenant tables when `app.organization_id` is unset; repositories additionally include organization and customer predicates. Production runtime roles must be `NOSUPERUSER NOBYPASSRLS` (the local Compose bootstrap owner is a documented development exception).
 
 ## Relationships and lifecycle constraints
 

@@ -1,8 +1,8 @@
 # NovaCart AI Customer Support Agent
 
-NovaCart is a standalone portfolio project for a production-style customer-support platform. **Milestones M0 and M1 are complete.** M1 supplies only the reproducible platform foundation: FastAPI, Next.js, PostgreSQL with pgvector, Redis, an ARQ worker, Alembic, quality tooling, tests, CI, and Docker Compose.
+NovaCart is a standalone portfolio project for a production-style customer-support platform. **Milestones M0 through M2 are complete.** M2 adds tenant-scoped persistence, local synthetic identity, durable conversation/message APIs, RBAC, sessions and append-only audit events on the M1 foundation.
 
-No chatbot, RAG, LangGraph graph, domain tables, authentication, commerce/CRM integration, or product interface is implemented yet. Those remain later milestones.
+No chatbot, RAG, LangGraph graph, commerce/CRM adapters, order system, streaming, production OIDC or final product interface is implemented. Those remain later milestones.
 
 ## Foundation services
 
@@ -11,7 +11,7 @@ No chatbot, RAG, LangGraph graph, domain tables, authentication, commerce/CRM in
 | Frontend | <http://localhost:3000> | Minimal M1 placeholder and live API readiness indicator |
 | API | <http://localhost:8000> | FastAPI foundation |
 | OpenAPI | <http://localhost:8000/docs> | Interactive API documentation |
-| PostgreSQL | Internal only | PostgreSQL 17 plus pgvector; persistent named volume |
+| PostgreSQL | `127.0.0.1:5432` | Loopback-only for native migrations/tests; persistent PostgreSQL 17 + pgvector volume |
 | Redis | Internal only | ARQ queue and worker health; persistent named volume |
 
 Health endpoints:
@@ -30,7 +30,8 @@ From the repository root in PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
-# Set the same strong local value for POSTGRES_PASSWORD and NOVACART_POSTGRES_PASSWORD.
+# Set the same strong local value for POSTGRES_PASSWORD and NOVACART_POSTGRES_PASSWORD,
+# and choose a local-only NOVACART_DEMO_STAFF_PASSWORD.
 docker compose config --quiet
 docker compose up --build -d --wait
 docker compose ps
@@ -45,14 +46,16 @@ COMMERCE_PROVIDER=mock
 CRM_PROVIDER=mock
 ```
 
-M1 does not invoke mock providers, OpenAI, Shopify, or HubSpot. Optional credentials may remain empty. Selecting a real provider validates that its future credential fields exist, but no adapter is implemented or called.
+M2 does not invoke mock providers, OpenAI, Shopify, or HubSpot. Optional credentials may remain empty. Demo identity is explicitly enabled in `.env.example` for local synthetic data and is rejected in production configuration.
 
 ## Migrations and worker verification
 
-The API applies migrations before starting. M1 contains exactly one foundation revision, which enables and verifies pgvector; it creates no business tables.
+The API applies migrations before starting. M1 enables pgvector; M2 adds the approved domain schema, tenant policies and append-only audit trigger. Seed data is explicit and idempotent:
 
 ```powershell
 docker compose run --rm api alembic upgrade head
+docker compose exec -T api python -m app.seed
+docker compose exec -T api python -m app.seed # safe idempotency check
 docker compose exec -T postgres psql -U novacart -d novacart -c "SELECT version_num FROM alembic_version"
 docker compose exec -T postgres psql -U novacart -d novacart -c "SELECT extversion FROM pg_extension WHERE extname='vector'"
 docker compose exec -T worker python -m app.worker.probe
@@ -82,6 +85,8 @@ Set-Location ..
 
 CI repeats these checks and validates/builds the Compose services. Generated dependency, build, coverage, cache, secret, log, and local-database files are ignored.
 
+Database integration tests run when `NOVACART_RUN_DB_TESTS=1`; point `NOVACART_POSTGRES_HOST` at a disposable PostgreSQL 17/pgvector database. See [M2 HTTP API](docs/API.md) for endpoints and access rules. Seeded logins use the password configured in `NOVACART_DEMO_STAFF_PASSWORD`; personas are `amira-en`, `lucas-fr`, and the isolation-only `nora-en` in the second tenant.
+
 ## Stop, restart, and reset
 
 Stop containers while retaining PostgreSQL and Redis data:
@@ -110,7 +115,7 @@ This is destructive and cannot recover local database/queue data. It does not to
 ## Common startup problems
 
 - **Compose reports a missing variable:** copy `.env.example` to `.env` and set both PostgreSQL password fields to the same value. Existing volumes retain the password used at creation; reset only the project volumes if intentionally changing it in a disposable environment.
-- **Port 3000 or 8000 is busy:** stop the conflicting process or change the localhost port mapping and `NEXT_PUBLIC_API_URL`, then rebuild the frontend.
+- **Port 3000, 8000 or 5432 is busy:** stop the conflicting process or change the loopback mapping (`POSTGRES_HOST_PORT` for PostgreSQL) and matching native-test settings.
 - **API is unhealthy:** run `docker compose logs api postgres redis`; readiness intentionally fails if PostgreSQL, Redis, the migration, or pgvector is unavailable.
 - **Frontend reports unavailable:** confirm `curl.exe http://localhost:8000/health/ready`, the frontend build-time API URL, and browser access to localhost:8000.
 - **Worker is unhealthy:** inspect `docker compose logs worker redis` and run the worker probe above.

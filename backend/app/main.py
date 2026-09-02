@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.errors import register_error_handlers
 from app.api.health import router as health_router
@@ -20,6 +21,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.db_engine = create_database_engine(resolved_settings)
+        app.state.db_session_factory = async_sessionmaker(
+            app.state.db_engine, expire_on_commit=False
+        )
         app.state.redis = create_redis_client(resolved_settings)
         yield
         await close_redis_client(app.state.redis)
@@ -36,8 +40,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[str(resolved_settings.frontend_url).rstrip("/")],
-        allow_credentials=False,
-        allow_methods=["GET"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
         allow_headers=["Accept", "Content-Type"],
     )
     app.include_router(health_router)

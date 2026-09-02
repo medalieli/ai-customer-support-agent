@@ -1,0 +1,6 @@
+[run]
+branch = True
+omit =
+    */app/domain/models.py
+    */app/seed.py
+    */app/worker/*

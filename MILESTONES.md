@@ -6,7 +6,7 @@ Status vocabulary: `COMPLETE`, `PLANNED`, `BLOCKED`. A milestone is complete onl
 |---|---|---|---|
 | M0 | COMPLETE | Product specification and architecture | All required documents exist; scenario traceability, safety boundaries, provider contracts, handoff, non-goals, and M1 inputs agree; documentation-only repository. |
 | M1 | COMPLETE | Repository and local platform skeleton | Next.js/FastAPI/ARQ worker boot; configuration validates; pgvector-only migration applies; all five Compose services become healthy and retain migration state across restart; backend lint/type/tests (16 tests, 93.9% coverage) and frontend lint/type/tests/build (4 tests, 100% line coverage) pass; no feature behavior claimed. |
-| M2 | PLANNED | Core schema and tenancy | Migrations cover documented entities, RLS/service checks and immutable audit constraints; repository tests prove tenant isolation. |
+| M2 | COMPLETE | Core schema, local identity and tenancy | M2 migration covers approved entities with composite tenant FKs, RLS policies and an immutable audit trigger; Argon2 credentials, hashed revocable sessions, Support/Admin membership checks, scoped conversation repositories, two-tenant seeds and 25 backend tests (90.31% coverage) pass, including authorized/denied integration cases. |
 | M3 | PLANNED | Synthetic mock providers | Commerce/CRM contract suites pass with seeded fixtures, failure injection, idempotency and webhook generation. |
 | M4 | PLANNED | Knowledge ingestion and retrieval | Versioned EN/FR corpus ingestion, hybrid retrieval, local reranking and citation validation meet offline retrieval gates. |
 | M5 | PLANNED | Durable conversation API | Authenticated threads/messages, streaming, PostgreSQL checkpoints and resume work across restarts. |
