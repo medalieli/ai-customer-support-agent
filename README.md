@@ -1,8 +1,8 @@
 # NovaCart AI Customer Support Agent
 
-NovaCart is a standalone portfolio project for a production-style customer-support platform. **Milestones M0 through M2 are complete.** M2 adds tenant-scoped persistence, local synthetic identity, durable conversation/message APIs, RBAC, sessions and append-only audit events on the M1 foundation.
+NovaCart is a standalone portfolio project for a production-style customer-support platform. **Milestones M0 through M3 are complete.** M3 adds an independently persisted synthetic commerce platform while preserving the tenant identity and conversation foundation.
 
-No chatbot, RAG, LangGraph graph, commerce/CRM adapters, order system, streaming, production OIDC or final product interface is implemented. Those remain later milestones.
+No chatbot, RAG, LangGraph graph, main-application commerce adapter, Shopify/CRM integration, streaming, production OIDC or final product interface is implemented. Those remain later milestones. Commerce orders belong only to the mock service, not NovaCart PostgreSQL.
 
 ## Foundation services
 
@@ -13,6 +13,7 @@ No chatbot, RAG, LangGraph graph, commerce/CRM adapters, order system, streaming
 | OpenAPI | <http://localhost:8000/docs> | Interactive API documentation |
 | PostgreSQL | `127.0.0.1:5432` | Loopback-only for native migrations/tests; persistent PostgreSQL 17 + pgvector volume |
 | Redis | Internal only | ARQ queue and worker health; persistent named volume |
+| Mock commerce | <http://localhost:8080> | Synthetic external commerce API with an independent SQLite volume |
 
 Health endpoints:
 
@@ -31,13 +32,15 @@ From the repository root in PowerShell:
 ```powershell
 Copy-Item .env.example .env
 # Set the same strong local value for POSTGRES_PASSWORD and NOVACART_POSTGRES_PASSWORD,
-# and choose a local-only NOVACART_DEMO_STAFF_PASSWORD.
+# choose NOVACART_DEMO_STAFF_PASSWORD, and replace MOCK_COMMERCE_INTERNAL_API_KEY.
 docker compose config --quiet
 docker compose up --build -d --wait
 docker compose ps
 ```
 
 Then open <http://localhost:3000>. The status pill should report that the API and dependencies are ready.
+Mock commerce health and OpenAPI are at <http://localhost:8080/health/ready> and
+<http://localhost:8080/docs>. Its `/v1` contract requires internal authentication and trusted tenant/customer headers; see [API contract](docs/API.md).
 
 Mock mode is the default through the exact M0 switches:
 
@@ -46,7 +49,7 @@ COMMERCE_PROVIDER=mock
 CRM_PROVIDER=mock
 ```
 
-M2 does not invoke mock providers, OpenAI, Shopify, or HubSpot. Optional credentials may remain empty. Demo identity is explicitly enabled in `.env.example` for local synthetic data and is rejected in production configuration.
+M3 runs the mock commerce API but does not connect it to the main application yet. It never invokes OpenAI, Shopify, or HubSpot. Optional external credentials may remain empty. Demo identity and commerce failure simulation are explicitly enabled only for local development and rejected in production configuration.
 
 ## Migrations and worker verification
 
@@ -81,6 +84,13 @@ npm run typecheck
 npm test
 npm run build
 Set-Location ..
+
+Set-Location mock-commerce
+..\.venv\Scripts\python.exe -m ruff format --check .
+..\.venv\Scripts\python.exe -m ruff check .
+..\.venv\Scripts\python.exe -m mypy app tests
+..\.venv\Scripts\python.exe -m pytest
+Set-Location ..
 ```
 
 CI repeats these checks and validates/builds the Compose services. Generated dependency, build, coverage, cache, secret, log, and local-database files are ignored.
@@ -112,10 +122,15 @@ docker compose down --volumes
 
 This is destructive and cannot recover local database/queue data. It does not touch the source tree or `.venv`.
 
+Mock commerce state is isolated in `novacart-support_mock_commerce_data`. To reset only that
+synthetic external system, stop `mock-commerce`, verify that exact volume name with `docker volume
+inspect`, remove it, and start the service again. Its deterministic fixtures are recreated on boot;
+the PostgreSQL and Redis volumes are untouched.
+
 ## Common startup problems
 
 - **Compose reports a missing variable:** copy `.env.example` to `.env` and set both PostgreSQL password fields to the same value. Existing volumes retain the password used at creation; reset only the project volumes if intentionally changing it in a disposable environment.
-- **Port 3000, 8000 or 5432 is busy:** stop the conflicting process or change the loopback mapping (`POSTGRES_HOST_PORT` for PostgreSQL) and matching native-test settings.
+- **Port 3000, 8000, 8080 or 5432 is busy:** stop the conflicting process or change the loopback mapping (`MOCK_COMMERCE_HOST_PORT` or `POSTGRES_HOST_PORT`) and matching native-test settings.
 - **API is unhealthy:** run `docker compose logs api postgres redis`; readiness intentionally fails if PostgreSQL, Redis, the migration, or pgvector is unavailable.
 - **Frontend reports unavailable:** confirm `curl.exe http://localhost:8000/health/ready`, the frontend build-time API URL, and browser access to localhost:8000.
 - **Worker is unhealthy:** inspect `docker compose logs worker redis` and run the worker probe above.

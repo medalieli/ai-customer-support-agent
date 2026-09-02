@@ -83,6 +83,29 @@ services:
     restart: unless-stopped
     networks: [backend]
 
+  mock-commerce:
+    build:
+      context: ./mock-commerce
+    env_file: .env
+    volumes:
+      - mock_commerce_data:/data
+    ports:
+      - "127.0.0.1:${MOCK_COMMERCE_HOST_PORT:-8080}:8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks: [backend]
+
   frontend:
     build:
       context: ./frontend
@@ -112,3 +135,4 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  mock_commerce_data:

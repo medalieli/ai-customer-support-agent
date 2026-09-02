@@ -35,6 +35,12 @@ Application-owned `CommerceProviderV1` and `CrmProviderV1` contracts accept an e
 
 Normalized models include opaque `external_ref`, ISO-4217 decimal money, ISO-8601 UTC timestamps, canonical address fields, explicit nullable fields, and mapped lifecycle enums while retaining a non-sensitive `provider_status` for diagnostics. Adapter payloads never enter prompts unfiltered. Feature capability checks happen before proposals. Mock and real adapters pass the same contract suite.
 
+### M3 mock-commerce implementation
+
+The mock commerce platform is a separate FastAPI process on the backend network and owns a dedicated persistent SQLite volume. This deliberately models an external system: NovaCart PostgreSQL contains no authoritative orders and the main API has no commerce adapter in M3. Calls require an internal shared-secret header plus trusted organization and external-customer scope. All lookup predicates use the full scope; an order number or opaque order reference alone is insufficient.
+
+SQLite transactions use `BEGIN IMMEDIATE` for writes. Each mutation checks an order version and stores a canonical SHA-256 request fingerprint with its idempotency key and serialized response. The implementation is suitable for deterministic local demos and contract tests, not production commerce scale. The future `CommerceProviderV1` adapter will translate this HTTP contract into the normalized provider port without changing agent logic.
+
 ## Request lifecycle and trust boundaries
 
 1. Edge/session layer authenticates when required and issues organization/customer/staff claims. Anonymous access is limited to public knowledge.

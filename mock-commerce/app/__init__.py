@@ -1,0 +1,1 @@
+"""Synthetic external commerce service."""

@@ -21,3 +21,43 @@ owned by another customer or tenant.
 
 Cookies are HttpOnly, path `/`, expire with the server session, and have configurable `Secure` and
 `SameSite=lax|strict` attributes. Browser payload IDs never establish identity or tenant scope.
+
+## M3 mock commerce contract
+
+The independently deployed service listens at `http://localhost:8080` locally and publishes OpenAPI
+at `/docs` and `/openapi.json`. Health routes require no authentication. Every `/v1` request requires
+`X-Internal-API-Key`, trusted `X-Organization-Id`, and opaque `X-External-Customer-Id` headers. The
+future adapter—not a browser or model—supplies these values. An inaccessible or unknown order always
+returns the same 404. Lists use `cursor` and `limit` (1–50), returning `items` and `next_cursor`.
+
+| Method | Path | Result |
+|---|---|---|
+| GET | `/v1/orders` | Scoped order summaries with cursor pagination. |
+| GET | `/v1/orders/{order_ref}` | Full order, lines, totals, delivery, address, tracking and refund requests. |
+| GET | `/v1/orders/{order_ref}/fulfillment` | Fulfillment/delivery state and order version. |
+| GET | `/v1/orders/{order_ref}/tracking` | Carrier, URL, estimate and tracking history. |
+| GET | `/v1/orders/{order_ref}/shipping-address` | Current shipping address. |
+| GET | `/v1/orders/{order_ref}/returns` | Existing return/refund-request statuses. |
+| PATCH | `/v1/orders/{order_ref}/shipping-address` | Changes an open, unfulfilled order address. |
+| POST | `/v1/orders/{order_ref}/refund-requests` | Records a request without deciding eligibility or moving money. |
+
+Writes require `Idempotency-Key` and integer `If-Match`. The SHA-256 fingerprint covers operation,
+version and canonical body. Exact replay returns the original result; changed input under the same
+key returns `409 idempotency_conflict`; stale versions return `409 version_conflict`. Address changes
+reject non-open or non-unfulfilled orders. Refund requests reject cancelled/already-refunded orders
+and invalid amounts but deliberately do not evaluate return policy.
+
+Errors use `{"error":{"code":"...","message":"...","retryable":false}}`. Codes include
+`unauthenticated`, `forbidden`, `not_found`, `validation`, `idempotency_conflict`,
+`version_conflict`, `order_state_conflict`, `rate_limited`, `timeout`, and `unavailable`; rate limits
+include `Retry-After`.
+
+In development/test only, authenticated calls may send `X-Mock-Failure` with `timeout`,
+`rate_limit`, `temporary`, `not_found`, `invalid`, or `version_conflict`. Production configuration
+rejects enabling simulation.
+
+Deterministic fixtures link `seed-amira-en` to changeable, shipped, delayed, recently delivered and
+out-of-window delivered orders; `seed-lucas-fr` to final-sale, partially fulfilled, cancelled and
+already-refunded orders; and isolation persona `seed-nora-en` in the second organization to a
+same-looking `NC-1001`. Products, lines, USD totals, addresses, fulfillment events and tracking are
+synthetic. Re-running initialization never overwrites mutations in the persistent commerce volume.
