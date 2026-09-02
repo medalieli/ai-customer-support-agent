@@ -57,6 +57,14 @@ Ingestion parses only approved sources, records document/version/language/effect
 
 Documents and provider text are untrusted content: delimiters, instruction-stripping classification, metadata filters, and tool isolation prevent them from altering system behavior. RAG explains refund policy; `RefundEligibilityService` alone decides eligibility.
 
+### M4 implementation boundary
+
+M4 implements retrieval, not RAG answer generation. Admin upload creates an immutable pending version and deterministic ARQ job. The worker validates tenant/version state, extracts Markdown headings, UTF-8 text or PDF pages, normalizes whitespace, makes fixed word-window chunks with overlap, embeds them, and atomically promotes the version. Replays of ready versions are no-ops; failed attempts replace their own partial chunks safely. Older ready versions become `superseded`, while their chunks and citation receipts remain resolvable.
+
+The configured M4 embedding provider is a deterministic 32-dimension feature-hash implementation for offline development and tests. PostgreSQL `simple` full-text candidates and cosine pgvector candidates are fused with reciprocal-rank fusion (`k=60`); a deterministic accent-normalizing English/French token-overlap reranker produces final ordering. Eligibility predicates require the exact organization, an approved/non-deleted document, and its active ready version.
+
+Retrieval persists an unguessable citation receipt containing immutable IDs, metadata, snippet and chunk checksum. Validation compares the complete receipt to tenant-owned database state and confirms the snippet occurs in the stored chunk. The future model has no database write access, so fabricated IDs cannot mint receipts.
+
 ## Durable orchestration and handoff
 
 ```mermaid

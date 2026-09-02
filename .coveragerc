@@ -3,4 +3,6 @@ branch = True
 omit =
     */app/domain/models.py
     */app/seed.py
+    */app/knowledge/seed.py
+    */app/knowledge/evaluation.py
     */app/worker/*

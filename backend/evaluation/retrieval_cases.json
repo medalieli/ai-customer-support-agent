@@ -1,0 +1,15 @@
+[
+  {"id":"en-return-direct","tenant":"novacart","query":"What is the return window after delivery?","expected":"returns_refunds"},
+  {"id":"en-address","tenant":"novacart","query":"Can I change my shipping address after shipment?","expected":"shipping"},
+  {"id":"en-warranty-paraphrase","tenant":"novacart","query":"How long are manufacturing defects covered?","expected":"warranty"},
+  {"id":"en-damaged","tenant":"novacart","query":"What photos are needed for a damaged package?","expected":"damaged_item"},
+  {"id":"en-product","tenant":"novacart","query":"Does the NovaView webcam have a privacy shutter?","expected":"products"},
+  {"id":"en-privacy","tenant":"novacart","query":"Will support ask for my full card or password?","expected":"privacy_account"},
+  {"id":"fr-return","tenant":"novacart","query":"Quel est le délai pour demander un remboursement?","expected":"returns_refunds","language":"fr"},
+  {"id":"fr-damaged","tenant":"novacart","query":"Que faire avec une batterie gonflée?","expected":"damaged_item","language":"fr"},
+  {"id":"fr-shipping","tenant":"novacart","query":"Quand le suivi de livraison apparaît-il?","expected":"shipping","language":"fr"},
+  {"id":"cross-language","tenant":"novacart","query":"warranty manufacturing defect","expected":"warranty","language":"fr"},
+  {"id":"ambiguous","tenant":"novacart","query":"How does this work?","expected":null},
+  {"id":"unsupported","tenant":"novacart","query":"Do you sell refrigerators in Tokyo?","expected":null},
+  {"id":"tenant-isolation","tenant":"orbit-outlet","query":"What is the NovaCart thirty day return window?","expected":null}
+]

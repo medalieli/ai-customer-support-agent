@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.knowledge.extraction import FileValidationError
 from app.services.auth import AuthenticationError, AuthorizationError, ResourceNotFoundError
 
 logger = structlog.get_logger(__name__)
@@ -13,6 +14,13 @@ def error_payload(code: str, message: str) -> dict[str, dict[str, str]]:
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(FileValidationError)
+    async def file_validation_error(request: Request, exc: FileValidationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content=error_payload("validation_error", "The document file is invalid."),
+        )
+
     @app.exception_handler(AuthenticationError)
     async def authentication_error(request: Request, exc: AuthenticationError) -> JSONResponse:
         return JSONResponse(

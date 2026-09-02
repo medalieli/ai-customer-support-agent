@@ -47,7 +47,7 @@ erDiagram
 
 Supporting records include `ProviderLink`, `OrderProjection`, `ConsentRecord`, `RefundDecision`, `Job/DLQ`, `Role/Permission`, and LangGraph checkpoint tables. `ConsentRecord` binds purpose/version to evidence; `RefundDecision` stores reason codes, facts hash and policy version.
 
-M2 implements document/version/chunk metadata but deliberately defers chunk text, embeddings and citations to the RAG milestone. It stores no authoritative orders. PostgreSQL RLS policies default-deny tenant tables when `app.organization_id` is unset; repositories additionally include organization and customer predicates. Production runtime roles must be `NOSUPERUSER NOBYPASSRLS` (the local Compose bootstrap owner is a documented development exception).
+M2 introduced document/version/chunk metadata. M4 adds immutable version source bytes and safe ingestion state, chunk text, page/section anchors, 32-dimensional embeddings, generated full-text vectors and `CitationRecord` receipts. A document points to its current active-ready version; replacement supersedes rather than deletes older versions. Soft-deleted documents are excluded from new retrieval while historical chunks and receipts remain resolvable. PostgreSQL RLS policies default-deny tenant tables when `app.organization_id` is unset; repositories and retrieval queries additionally include organization predicates. Production runtime roles must be `NOSUPERUSER NOBYPASSRLS` (the local Compose bootstrap owner is a documented development exception).
 
 ## Relationships and lifecycle constraints
 

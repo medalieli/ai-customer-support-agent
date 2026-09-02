@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = False
     session_cookie_samesite: Literal["lax", "strict"] = "lax"
 
+    embedding_provider: Literal["fake"] = "fake"
+    embedding_dimensions: int = Field(default=32, ge=8, le=3072)
+    retrieval_lexical_k: int = Field(default=20, ge=1, le=100)
+    retrieval_vector_k: int = Field(default=20, ge=1, le=100)
+    retrieval_top_k: int = Field(default=5, ge=1, le=20)
+    chunk_size_words: int = Field(default=120, ge=20, le=500)
+    chunk_overlap_words: int = Field(default=20, ge=0, le=100)
+
     commerce_provider: Literal["mock", "shopify"] = Field(
         default="mock",
         validation_alias=AliasChoices("COMMERCE_PROVIDER", "NOVACART_COMMERCE_PROVIDER"),
@@ -69,6 +77,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_provider_credentials(self) -> "Settings":
+        if self.chunk_overlap_words >= self.chunk_size_words:
+            raise ValueError("Chunk overlap must be smaller than chunk size")
         if self.app_env == "production" and self.demo_auth_enabled:
             raise ValueError("Demo authentication cannot be enabled in production")
         if self.demo_auth_enabled and not self.demo_staff_password:

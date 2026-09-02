@@ -16,6 +16,8 @@ COPY pyproject.toml ./
 COPY app ./app
 COPY alembic.ini ./
 COPY migrations ./migrations
+COPY knowledge-base ./knowledge-base
+COPY evaluation ./evaluation
 RUN pip install --no-deps .
 
 USER novacart

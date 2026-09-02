@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -78,6 +80,14 @@ class DocumentStatus(str, enum.Enum):
     DRAFT = "draft"
     APPROVED = "approved"
     ARCHIVED = "archived"
+
+
+class IngestionStatus(str, enum.Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"
+    SUPERSEDED = "superseded"
 
 
 class TimestampMixin:
@@ -331,8 +341,10 @@ class KnowledgeDocument(Base, TimestampMixin):
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     slug: Mapped[str] = mapped_column(String(160))
+    title: Mapped[str] = mapped_column(String(240), default="Untitled")
     document_type: Mapped[str] = mapped_column(String(50))
     status: Mapped[DocumentStatus] = mapped_column(Enum(DocumentStatus, native_enum=False))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class DocumentVersion(Base, TimestampMixin):
@@ -351,6 +363,13 @@ class DocumentVersion(Base, TimestampMixin):
     version: Mapped[str] = mapped_column(String(80))
     locale: Mapped[str] = mapped_column(String(5))
     checksum: Mapped[str] = mapped_column(String(64))
+    status: Mapped[IngestionStatus] = mapped_column(
+        Enum(IngestionStatus, native_enum=False), default=IngestionStatus.PENDING
+    )
+    source_filename: Mapped[str] = mapped_column(String(240))
+    media_type: Mapped[str] = mapped_column(String(100))
+    raw_content: Mapped[bytes] = mapped_column(LargeBinary)
+    error_code: Mapped[str | None] = mapped_column(String(80))
     effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -359,7 +378,15 @@ class DocumentVersion(Base, TimestampMixin):
 class ChunkMetadata(Base):
     __tablename__ = "chunk_metadata"
     __table_args__ = (
+        UniqueConstraint("organization_id", "id", name="uq_chunk_metadata_org_id"),
         UniqueConstraint("document_version_id", "ordinal"),
+        Index("ix_chunk_metadata_search_vector", "search_vector", postgresql_using="gin"),
+        Index(
+            "ix_chunk_metadata_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
         ForeignKeyConstraint(
             ["organization_id", "document_version_id"],
             ["document_versions.organization_id", "document_versions.id"],
@@ -371,5 +398,42 @@ class ChunkMetadata(Base):
     ordinal: Mapped[int] = mapped_column(Integer)
     token_count: Mapped[int] = mapped_column(Integer)
     checksum: Mapped[str] = mapped_column(String(64))
+    text: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(5))
+    page_number: Mapped[int | None] = mapped_column(Integer)
     section_anchor: Mapped[str | None] = mapped_column(String(300))
+    embedding: Mapped[list[float]] = mapped_column(Vector(32))
+    search_vector: Mapped[Any] = mapped_column(TSVECTOR)
     metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
+
+
+class CitationRecord(Base):
+    __tablename__ = "citation_records"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "document_id"],
+            ["knowledge_documents.organization_id", "knowledge_documents.id"],
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "document_version_id"],
+            ["document_versions.organization_id", "document_versions.id"],
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "chunk_id"],
+            ["chunk_metadata.organization_id", "chunk_metadata.id"],
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    document_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    document_version_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    chunk_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    source_title: Mapped[str] = mapped_column(String(240))
+    language: Mapped[str] = mapped_column(String(5))
+    section_anchor: Mapped[str | None] = mapped_column(String(300))
+    page_number: Mapped[int | None] = mapped_column(Integer)
+    snippet: Mapped[str] = mapped_column(Text)
+    chunk_checksum: Mapped[str] = mapped_column(String(64))
+    retrieved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

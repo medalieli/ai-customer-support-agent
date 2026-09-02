@@ -11,7 +11,7 @@ from app.api.v1.router import router as v1_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.infrastructure.database import close_database_engine, create_database_engine
-from app.infrastructure.redis import close_redis_client, create_redis_client
+from app.infrastructure.redis import close_redis_client, create_job_queue, create_redis_client
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -25,7 +25,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.db_engine, expire_on_commit=False
         )
         app.state.redis = create_redis_client(resolved_settings)
+        app.state.job_queue = await create_job_queue(resolved_settings)
         yield
+        await app.state.job_queue.aclose()
         await close_redis_client(app.state.redis)
         await close_database_engine(app.state.db_engine)
 

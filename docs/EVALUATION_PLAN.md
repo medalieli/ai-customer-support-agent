@@ -34,3 +34,9 @@ CI runs deterministic mock, rule, authorization, injection, replay and retrieval
 ## Production-style monitoring
 
 Dashboards track successful containment, escalation, correction/reopen, tool errors, provider latency, queue lag, citation rejection, refund reason distribution, confirmation expiry/replay, CRM consent, language and cost. Alerts target authorization anomalies, signature failures, unknown write outcomes, citation regressions, queue backlog and adapter circuit opening. Conversation review samples are redacted and access-controlled.
+
+## M4 retrieval baseline
+
+`backend/evaluation/retrieval_cases.json` is a 13-case synthetic baseline covering direct and paraphrased policy questions, English, French, one cross-language query, ambiguity, unsupported information, tenant isolation, and superseded/deleted-source targeting. `python -m app.knowledge.evaluation` executes the real PostgreSQL FTS/pgvector/fusion/reranking path; it does not use expected labels as retrieval input and does not generate answers.
+
+Against the committed seed corpus, the verified M4 run measured 10 relevant cases with Recall@5 `1.0`, MRR `1.0`, and zero false-positive results across the three unsupported/isolation cases. The corpus is deliberately small, so these numbers establish reproducibility and regression detection only. M16 must expand the corpus and introduce a production embedding/reranker before treating these as representative quality metrics.

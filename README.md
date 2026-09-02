@@ -1,8 +1,8 @@
 # NovaCart AI Customer Support Agent
 
-NovaCart is a standalone portfolio project for a production-style customer-support platform. **Milestones M0 through M3 are complete.** M3 adds an independently persisted synthetic commerce platform while preserving the tenant identity and conversation foundation.
+NovaCart is a standalone portfolio project for a production-style customer-support platform. **Milestones M0 through M4 are complete.** M4 adds tenant-scoped, versioned English/French knowledge ingestion and structured hybrid retrieval with validated citations.
 
-No chatbot, RAG, LangGraph graph, main-application commerce adapter, Shopify/CRM integration, streaming, production OIDC or final product interface is implemented. Those remain later milestones. Commerce orders belong only to the mock service, not NovaCart PostgreSQL.
+No chatbot or AI answer generation, LangGraph graph, main-application commerce adapter, Shopify/CRM integration, streaming, production OIDC or final product interface is implemented. Those remain later milestones. Commerce orders belong only to the mock service, not NovaCart PostgreSQL.
 
 ## Foundation services
 
@@ -51,14 +51,29 @@ CRM_PROVIDER=mock
 
 M3 runs the mock commerce API but does not connect it to the main application yet. It never invokes OpenAI, Shopify, or HubSpot. Optional external credentials may remain empty. Demo identity and commerce failure simulation are explicitly enabled only for local development and rejected in production configuration.
 
+## Knowledge ingestion and retrieval
+
+M4 ships original synthetic NovaCart policies in `backend/knowledge-base`, in English and French. Admin uploads accept UTF-8 Markdown/plain text and PDFs up to 2 MiB. The API stores a pending immutable version and queues ARQ; the worker extracts text, creates deterministic overlapping chunks, generates deterministic local test embeddings, and marks the version ready or failed. The local `fake` provider is the only M4 embedding provider and never makes a network or paid API call.
+
+Only approved, non-deleted documents' active ready version is searchable. Retrieval combines PostgreSQL full-text rank and pgvector cosine candidates with reciprocal-rank fusion, followed by a deterministic bilingual local reranker. It returns passages, scores, and persisted citation receipts; it never generates an answer. Seed and evaluate with:
+
+```powershell
+docker compose exec -T api python -m app.knowledge.seed
+docker compose exec -T api python -m app.knowledge.seed # idempotent
+docker compose exec -T api python -m app.knowledge.evaluation
+```
+
+The measured M4 fixture result is Recall@5 `1.0`, MRR `1.0`, with zero results for the three unsupported/isolation cases. These are small deterministic development-corpus results, not a production quality claim. See [API documentation](docs/API.md) for lifecycle and retrieval routes.
+
 ## Migrations and worker verification
 
-The API applies migrations before starting. M1 enables pgvector; M2 adds the approved domain schema, tenant policies and append-only audit trigger. Seed data is explicit and idempotent:
+The API applies migrations before starting. M1 enables pgvector; M2 adds the approved domain schema, tenant policies and append-only audit trigger; M4 adds knowledge content, vector/FTS indexes and durable citation receipts. Seed data is explicit and idempotent:
 
 ```powershell
 docker compose run --rm api alembic upgrade head
 docker compose exec -T api python -m app.seed
 docker compose exec -T api python -m app.seed # safe idempotency check
+docker compose exec -T api python -m app.knowledge.seed
 docker compose exec -T postgres psql -U novacart -d novacart -c "SELECT version_num FROM alembic_version"
 docker compose exec -T postgres psql -U novacart -d novacart -c "SELECT extversion FROM pg_extension WHERE extname='vector'"
 docker compose exec -T worker python -m app.worker.probe
@@ -134,6 +149,8 @@ the PostgreSQL and Redis volumes are untouched.
 - **API is unhealthy:** run `docker compose logs api postgres redis`; readiness intentionally fails if PostgreSQL, Redis, the migration, or pgvector is unavailable.
 - **Frontend reports unavailable:** confirm `curl.exe http://localhost:8000/health/ready`, the frontend build-time API URL, and browser access to localhost:8000.
 - **Worker is unhealthy:** inspect `docker compose logs worker redis` and run the worker probe above.
+- **Knowledge version remains pending:** confirm Redis and worker health, then use the Admin retry endpoint. A failed version stores only a safe error code; inspect redacted worker logs for operational diagnosis.
+- **Native database tests skip:** set `NOVACART_RUN_DB_TESTS=1` and point `NOVACART_POSTGRES_HOST` to the disposable/local pgvector PostgreSQL instance.
 
 ## Documentation
 

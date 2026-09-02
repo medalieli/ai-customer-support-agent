@@ -61,3 +61,19 @@ out-of-window delivered orders; `seed-lucas-fr` to final-sale, partially fulfill
 already-refunded orders; and isolation persona `seed-nora-en` in the second organization to a
 same-looking `NC-1001`. Products, lines, USD totals, addresses, fulfillment events and tracking are
 synthetic. Re-running initialization never overwrites mutations in the persistent commerce volume.
+
+## M4 knowledge API
+
+All routes are under `/api/v1/knowledge` and use the M2 HttpOnly session. Document lifecycle routes require an active Admin membership; Support staff receive 403. Search and citation validation require any authenticated identity and always derive the organization from that session.
+
+| Method | Path | Access | Result |
+|---|---|---|---|
+| POST | `/documents` | Admin | Multipart file and metadata; creates or replaces with a queued immutable version. |
+| GET | `/documents` | Admin | Tenant-scoped documents and all preserved versions. |
+| GET | `/documents/{document_id}/versions/{version_id}` | Admin | Safe ingestion state and error code. |
+| DELETE | `/documents/{document_id}` | Admin | Soft-deletes the document; historical versions/citations remain. |
+| POST | `/documents/{document_id}/versions/{version_id}/retry` | Admin | Requeues a failed version; ready versions are idempotent. |
+| GET | `/search` | Authenticated | Structured passages for `q`, optional filters, and bounded `top_k`. |
+| POST | `/citations/validate` | Authenticated | Validates an exact previously issued citation receipt. |
+
+Uploads accept `.md`, `.txt`, and `.pdf`, at most 2 MiB. Duplicate `(document, language, checksum)` uploads return the existing version. Search results contain lexical, vector, fusion and rerank scores plus a citation receipt with document/version/chunk IDs, title, language, section/page and exact snippet. Validation succeeds only when every supplied field matches a durable tenant-owned receipt and current stored chunk checksum.
