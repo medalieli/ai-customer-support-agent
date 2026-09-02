@@ -73,6 +73,8 @@ LangGraph `interrupt()` persists the checkpoint and an explicit resume reason fo
 
 Webhook ingress reads raw bytes, resolves provider/tenant by endpoint key, verifies signature and timestamp before parsing, rate-limits, and inserts a unique inbox record (`provider`, `organization_id`, `external_event_id` or payload hash). It acknowledges after durable insert. Redis queues the database event ID; workers claim it, normalize, update local order projections conditionally by provider version/time, append audit events, notify clients, and retry with exponential backoff. Poison events go to a dead-letter state with alerts. PostgreSQL is the durable job truth; Redis delivery may be repeated.
 
+M1 implements the worker boundary with ARQ, an async Redis-backed Python worker shared with the FastAPI settings package. Its only M1 job is a health-verification probe; durable webhook jobs and the PostgreSQL inbox remain M11 scope. See ADR-010.
+
 ## Reliability limits
 
 Default per-turn budget: at most 8 tool executions, 2 guarded-write proposals, and 25 seconds of active orchestration (pauses excluded). Provider reads time out at 5 seconds and writes at 10 seconds; OpenAI calls at 15 seconds. Retry at most twice for retryable reads with jitter within the budget; never blindly retry a write without the same idempotency key and reconciliation. Circuit breakers and typed degraded responses prevent cascades. Budget exhaustion produces a partial factual answer plus retry/escalation choice.

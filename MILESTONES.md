@@ -5,7 +5,7 @@ Status vocabulary: `COMPLETE`, `PLANNED`, `BLOCKED`. A milestone is complete onl
 | ID | Status | Deliverable | Completion gate |
 |---|---|---|---|
 | M0 | COMPLETE | Product specification and architecture | All required documents exist; scenario traceability, safety boundaries, provider contracts, handoff, non-goals, and M1 inputs agree; documentation-only repository. |
-| M1 | PLANNED | Repository and local platform skeleton | Next.js/FastAPI workers boot; lint/type/test CI passes; configuration validates; no feature behavior claimed. |
+| M1 | COMPLETE | Repository and local platform skeleton | Next.js/FastAPI/ARQ worker boot; configuration validates; pgvector-only migration applies; all five Compose services become healthy and retain migration state across restart; backend lint/type/tests (16 tests, 93.9% coverage) and frontend lint/type/tests/build (4 tests, 100% line coverage) pass; no feature behavior claimed. |
 | M2 | PLANNED | Core schema and tenancy | Migrations cover documented entities, RLS/service checks and immutable audit constraints; repository tests prove tenant isolation. |
 | M3 | PLANNED | Synthetic mock providers | Commerce/CRM contract suites pass with seeded fixtures, failure injection, idempotency and webhook generation. |
 | M4 | PLANNED | Knowledge ingestion and retrieval | Versioned EN/FR corpus ingestion, hybrid retrieval, local reranking and citation validation meet offline retrieval gates. |
