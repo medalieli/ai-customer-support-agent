@@ -3,7 +3,9 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.knowledge.embeddings import EmbeddingProviderError
 from app.knowledge.extraction import FileValidationError
+from app.knowledge.rerankers import RerankerError
 from app.services.auth import AuthenticationError, AuthorizationError, ResourceNotFoundError
 
 logger = structlog.get_logger(__name__)
@@ -14,6 +16,20 @@ def error_payload(code: str, message: str) -> dict[str, dict[str, str]]:
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(EmbeddingProviderError)
+    async def embedding_error(request: Request, exc: EmbeddingProviderError) -> JSONResponse:
+        return JSONResponse(
+            status_code=503 if exc.retryable else 422,
+            content=error_payload(exc.code, "Semantic retrieval is currently unavailable."),
+        )
+
+    @app.exception_handler(RerankerError)
+    async def reranker_error(request: Request, exc: RerankerError) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content=error_payload(exc.code, "Semantic reranking is currently unavailable."),
+        )
+
     @app.exception_handler(FileValidationError)
     async def file_validation_error(request: Request, exc: FileValidationError) -> JSONResponse:
         return JSONResponse(

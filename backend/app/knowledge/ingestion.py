@@ -2,7 +2,7 @@ import hashlib
 from datetime import datetime, timezone
 from uuid import UUID, uuid5
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -13,7 +13,12 @@ from app.domain.models import (
 )
 from app.infrastructure.database import set_tenant_scope
 from app.knowledge.chunking import chunk_sections
-from app.knowledge.embeddings import DeterministicFakeEmbeddings, EmbeddingProvider
+from app.knowledge.embeddings import (
+    EmbeddingProvider,
+    EmbeddingProviderError,
+    create_embedding_provider,
+    indexing_fingerprint,
+)
 from app.knowledge.extraction import FileValidationError, extract
 
 
@@ -33,7 +38,9 @@ async def process_document_version(
     )
     if version is None:
         return {"status": "not_found"}
-    if version.status == IngestionStatus.READY:
+    provider = embedding_provider or create_embedding_provider(settings)
+    fingerprint = indexing_fingerprint(settings, provider)
+    if version.status == IngestionStatus.READY and version.indexing_fingerprint == fingerprint:
         count = len(
             list(
                 await session.scalars(
@@ -51,33 +58,46 @@ async def process_document_version(
     try:
         sections = extract(version.source_filename, version.raw_content)
         chunks = chunk_sections(sections, settings.chunk_size_words, settings.chunk_overlap_words)
-        provider = embedding_provider or DeterministicFakeEmbeddings(settings.embedding_dimensions)
         embeddings = await provider.embed([chunk.text for chunk in chunks])
+        if any(len(embedding) != settings.embedding_dimensions for embedding in embeddings):
+            raise EmbeddingProviderError("embedding_dimension_mismatch", retryable=False)
         await set_tenant_scope(session, organization_id)
         await session.execute(
-            delete(ChunkMetadata).where(
+            update(ChunkMetadata)
+            .where(
                 ChunkMetadata.organization_id == organization_id,
                 ChunkMetadata.document_version_id == version_id,
             )
+            .values(embedding=None, indexing_fingerprint=None)
         )
         for chunk, embedding in zip(chunks, embeddings, strict=True):
-            session.add(
-                ChunkMetadata(
-                    id=uuid5(version.id, str(chunk.ordinal)),
-                    organization_id=organization_id,
-                    document_version_id=version.id,
-                    ordinal=chunk.ordinal,
-                    token_count=chunk.token_count,
-                    checksum=chunk.checksum,
-                    text=chunk.text,
-                    language=version.locale,
-                    page_number=chunk.page,
-                    section_anchor=chunk.section,
-                    embedding=embedding,
-                    search_vector=func.to_tsvector("simple", chunk.text),
-                    metadata_json={},
+            chunk_id = uuid5(version.id, str(chunk.ordinal))
+            stored = await session.get(ChunkMetadata, chunk_id)
+            values = {
+                "ordinal": chunk.ordinal,
+                "token_count": chunk.token_count,
+                "checksum": chunk.checksum,
+                "text": chunk.text,
+                "language": version.locale,
+                "page_number": chunk.page,
+                "section_anchor": chunk.section,
+                "embedding": embedding,
+                "search_vector": func.to_tsvector("simple", chunk.text),
+                "indexing_fingerprint": fingerprint,
+                "metadata_json": {},
+            }
+            if stored is None:
+                session.add(
+                    ChunkMetadata(
+                        id=chunk_id,
+                        organization_id=organization_id,
+                        document_version_id=version.id,
+                        **values,
+                    )
                 )
-            )
+            else:
+                for name, value in values.items():
+                    setattr(stored, name, value)
         await session.execute(
             update(DocumentVersion)
             .where(
@@ -91,9 +111,13 @@ async def process_document_version(
         )
         version.status = IngestionStatus.READY
         version.approved_at = datetime.now(timezone.utc)
+        version.embedding_provider = provider.provider_name
+        version.embedding_model = provider.model_name
+        version.embedding_dimension = provider.dimensions
+        version.indexing_fingerprint = fingerprint
         await session.commit()
         return {"status": "ready", "chunks": len(chunks), "idempotent": False}
-    except (FileValidationError, RuntimeError, ValueError):
+    except (EmbeddingProviderError, FileValidationError, RuntimeError, ValueError):
         await session.rollback()
         await set_tenant_scope(session, organization_id)
         failed = await session.get(DocumentVersion, version_id)

@@ -10,7 +10,9 @@ RUN groupadd --system --gid 10001 novacart \
 
 WORKDIR /app
 COPY requirements.txt ./
-RUN pip install --upgrade "pip==25.2" && pip install -r requirements.txt
+RUN pip install --upgrade "pip==25.2" \
+    && pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.14.0+cpu" \
+    && pip install -r requirements.txt
 
 COPY pyproject.toml ./
 COPY app ./app
@@ -18,7 +20,9 @@ COPY alembic.ini ./
 COPY migrations ./migrations
 COPY knowledge-base ./knowledge-base
 COPY evaluation ./evaluation
-RUN pip install --no-deps .
+RUN pip install --no-deps . \
+    && mkdir -p /models \
+    && chown novacart:novacart /models
 
 USER novacart
 EXPOSE 8000

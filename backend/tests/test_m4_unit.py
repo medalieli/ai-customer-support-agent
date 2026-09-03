@@ -59,10 +59,10 @@ def test_chunking_is_deterministic_and_overlapping() -> None:
 
 @pytest.mark.asyncio
 async def test_fake_embeddings_are_deterministic_and_failure_is_controllable() -> None:
-    provider = DeterministicFakeEmbeddings(32)
+    provider = DeterministicFakeEmbeddings(1536)
     first = await provider.embed(["shipping tracking"])
     assert first == await provider.embed(["shipping tracking"])
-    assert len(first[0]) == 32
+    assert len(first[0]) == 1536
     with pytest.raises(RuntimeError, match="synthetic_embedding_failure"):
         await provider.embed(["[[EMBEDDING_FAILURE]]"])
 

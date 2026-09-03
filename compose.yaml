@@ -37,6 +37,8 @@ services:
     build:
       context: ./backend
     env_file: .env
+    volumes:
+      - model_cache:/models
     command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     ports:
       - "127.0.0.1:8000:8000"
@@ -64,6 +66,8 @@ services:
     build:
       context: ./backend
     env_file: .env
+    volumes:
+      - model_cache:/models
     command: ["arq", "app.worker.main.WorkerSettings"]
     depends_on:
       redis:
@@ -136,3 +140,4 @@ volumes:
   postgres_data:
   redis_data:
   mock_commerce_data:
+  model_cache:

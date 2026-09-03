@@ -42,11 +42,19 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = False
     session_cookie_samesite: Literal["lax", "strict"] = "lax"
 
-    embedding_provider: Literal["fake"] = "fake"
-    embedding_dimensions: int = Field(default=32, ge=8, le=3072)
+    embedding_provider: Literal["fake", "openai"] = "fake"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = Field(default=1536, ge=1536, le=1536)
+    embedding_batch_size: int = Field(default=64, ge=1, le=256)
+    embedding_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
+    embedding_max_retries: int = Field(default=2, ge=0, le=5)
+    reranker_provider: Literal["deterministic", "cross_encoder"] = "deterministic"
+    reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    reranker_model_cache: str = ".cache/models"
     retrieval_lexical_k: int = Field(default=20, ge=1, le=100)
     retrieval_vector_k: int = Field(default=20, ge=1, le=100)
     retrieval_top_k: int = Field(default=5, ge=1, le=20)
+    retrieval_min_reranker_score: float = -3.07
     chunk_size_words: int = Field(default=120, ge=20, le=500)
     chunk_overlap_words: int = Field(default=20, ge=0, le=100)
 
@@ -85,6 +93,14 @@ class Settings(BaseSettings):
             raise ValueError("Demo authentication requires a demo staff password")
         if self.app_env == "production" and not self.session_cookie_secure:
             raise ValueError("Production session cookies must be secure")
+        if self.embedding_provider == "openai" and not (
+            self.openai_api_key and self.openai_api_key.get_secret_value().strip()
+        ):
+            raise ValueError("OpenAI embedding mode requires an API key")
+        if self.app_env == "production" and self.embedding_provider == "fake":
+            raise ValueError("Fake embeddings cannot be enabled in production")
+        if self.app_env == "production" and self.reranker_provider == "deterministic":
+            raise ValueError("Deterministic reranking cannot be enabled in production")
         if self.commerce_provider == "shopify" and not (
             self.shopify_store_domain and self.shopify_access_token
         ):

@@ -37,6 +37,17 @@ Dashboards track successful containment, escalation, correction/reopen, tool err
 
 ## M4 retrieval baseline
 
-`backend/evaluation/retrieval_cases.json` is a 13-case synthetic baseline covering direct and paraphrased policy questions, English, French, one cross-language query, ambiguity, unsupported information, tenant isolation, and superseded/deleted-source targeting. `python -m app.knowledge.evaluation` executes the real PostgreSQL FTS/pgvector/fusion/reranking path; it does not use expected labels as retrieval input and does not generate answers.
+`backend/evaluation/retrieval_cases.json` is a 29-case synthetic baseline covering direct and paraphrased questions, English, French, cross-language retrieval, easily confused policy categories, ambiguity, unsupported information, tenant isolation, and superseded/deleted-source targeting. `python -m app.knowledge.evaluation` executes PostgreSQL FTS/pgvector/fusion/configured-reranker retrieval; it does not use expected labels as retrieval input and does not generate answers. It reports Recall@5, MRR, unsupported/isolation false positives, mean latency and p95 latency.
 
-Against the committed seed corpus, the verified M4 run measured 10 relevant cases with Recall@5 `1.0`, MRR `1.0`, and zero false-positive results across the three unsupported/isolation cases. The corpus is deliberately small, so these numbers establish reproducibility and regression detection only. M16 must expand the corpus and introduce a production embedding/reranker before treating these as representative quality metrics.
+Provider labels are mandatory in reports. The deterministic-provider run is an automated regression baseline only. A production-semantic baseline requires successful OpenAI reingestion plus the real cross-encoder; missing credentials or model weights block that result rather than authorizing fallback. The corpus remains deliberately small, so even real-provider numbers establish reproducibility rather than production representativeness.
+
+### M4 measured baselines
+
+Both runs used 1,536-dimensional vectors, the same 29 cases and `top_k=5`. The real-provider run used OpenAI `text-embedding-3-small`, `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` and the calibrated cross-encoder relevance threshold `-3.07`. Latency includes query embedding, PostgreSQL hybrid retrieval, local reranking and citation persistence on the local development machine.
+
+| Provider configuration | Recall@5 | MRR | Unsupported/isolation false positives | Mean latency | P95 latency |
+|---|---:|---:|---:|---:|---:|
+| Deterministic fake embedding + deterministic reranker (automated-test baseline) | 0.954545 | 0.918182 | 0 | 18.757 ms | 21.417 ms |
+| OpenAI `text-embedding-3-small` + multilingual cross-encoder (real semantic baseline) | 0.909091 | 0.909091 | 0 | 1061.870 ms | 1011.193 ms |
+
+The p95 being lower than the mean is possible here because one cold-start/model initialization observation raises the mean while the nearest-rank p95 statistic excludes that single maximum. The real baseline meets the M4 overall Recall@5 gate; two difficult paraphrases remain misses and are retained as regression targets rather than rewritten to inflate the score.

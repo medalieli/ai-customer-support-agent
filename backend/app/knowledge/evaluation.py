@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from time import perf_counter
 from typing import TypedDict
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -32,10 +33,12 @@ async def evaluate() -> dict[str, float | int]:
     reciprocal_ranks: list[float] = []
     recalled = 0
     isolation_failures = 0
+    latencies_ms: list[float] = []
     try:
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             for case in cases:
+                started = perf_counter()
                 results = await retrieve_passages(
                     session,
                     settings,
@@ -44,6 +47,7 @@ async def evaluate() -> dict[str, float | int]:
                     language=case.get("language"),
                     top_k=5,
                 )
+                latencies_ms.append((perf_counter() - started) * 1000)
                 expected = case["expected"]
                 if expected is None:
                     if results:
@@ -66,12 +70,16 @@ async def evaluate() -> dict[str, float | int]:
     finally:
         await engine.dispose()
     relevant = len(reciprocal_ranks)
+    ordered_latencies = sorted(latencies_ms)
+    p95_index = max(0, int(len(ordered_latencies) * 0.95 + 0.999) - 1)
     return {
         "cases": len(cases),
         "relevant_cases": relevant,
         "recall_at_5": recalled / relevant if relevant else 0.0,
         "mrr": sum(reciprocal_ranks) / relevant if relevant else 0.0,
         "unsupported_or_isolation_false_positives": isolation_failures,
+        "mean_latency_ms": sum(latencies_ms) / len(latencies_ms) if latencies_ms else 0.0,
+        "p95_latency_ms": ordered_latencies[p95_index] if ordered_latencies else 0.0,
     }
 
 

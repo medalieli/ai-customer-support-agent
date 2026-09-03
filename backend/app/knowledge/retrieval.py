@@ -17,7 +17,12 @@ from app.domain.models import (
     KnowledgeDocument,
 )
 from app.infrastructure.database import set_tenant_scope
-from app.knowledge.embeddings import DeterministicFakeEmbeddings, EmbeddingProvider
+from app.knowledge.embeddings import (
+    EmbeddingProvider,
+    create_embedding_provider,
+    indexing_fingerprint,
+)
+from app.knowledge.rerankers import Reranker, create_reranker
 
 RRF_K = 60
 STOPWORDS = {
@@ -135,16 +140,25 @@ async def retrieve_passages(
     document_type: str | None = None,
     top_k: int | None = None,
     embedding_provider: EmbeddingProvider | None = None,
+    reranker: Reranker | None = None,
 ) -> list[Passage]:
     await set_tenant_scope(session, organization_id)
-    provider = embedding_provider or DeterministicFakeEmbeddings(settings.embedding_dimensions)
+    provider = embedding_provider or create_embedding_provider(settings)
+    fingerprint = indexing_fingerprint(settings, provider)
     query_embedding = (await provider.embed([query]))[0]
+    if len(query_embedding) != settings.embedding_dimensions:
+        from app.knowledge.embeddings import EmbeddingProviderError
+
+        raise EmbeddingProviderError("embedding_dimension_mismatch", retryable=False)
     filters = [
         ChunkMetadata.organization_id == organization_id,
         KnowledgeDocument.organization_id == organization_id,
         KnowledgeDocument.status == DocumentStatus.APPROVED,
         KnowledgeDocument.deleted_at.is_(None),
         DocumentVersion.status == IngestionStatus.READY,
+        DocumentVersion.indexing_fingerprint == fingerprint,
+        ChunkMetadata.indexing_fingerprint == fingerprint,
+        ChunkMetadata.embedding.is_not(None),
     ]
     if language:
         filters.append(ChunkMetadata.language == language)
@@ -207,14 +221,14 @@ async def retrieve_passages(
         )
         item["vector"] = 1.0 - float(raw_distance)
         item["fusion"] += 1 / (RRF_K + rank)
-    supported = [
-        item
-        for item in candidates.values()
-        if local_rerank(query, item["chunk"].text) > 0 or item["lexical"] > 0
-    ]
+    fused = sorted(candidates.values(), key=lambda item: item["fusion"], reverse=True)
+    selected_reranker = reranker or create_reranker(settings)
+    rerank_scores = await selected_reranker.score(query, [item["chunk"].text for item in fused])
+    for item, score in zip(fused, rerank_scores, strict=True):
+        item["rerank"] = score
     ranked = sorted(
-        supported,
-        key=lambda item: (local_rerank(query, item["chunk"].text), item["fusion"]),
+        (item for item in fused if item["rerank"] > settings.retrieval_min_reranker_score),
+        key=lambda item: (item["rerank"], item["fusion"]),
         reverse=True,
     )[: top_k or settings.retrieval_top_k]
     results: list[Passage] = []
@@ -243,7 +257,7 @@ async def retrieve_passages(
                 lexical_score=item["lexical"],
                 vector_score=item["vector"],
                 fusion_score=item["fusion"],
-                rerank_score=local_rerank(query, result_chunk.text),
+                rerank_score=item["rerank"],
                 citation=Citation(
                     record.id,
                     result_document.id,

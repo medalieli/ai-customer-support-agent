@@ -11,5 +11,21 @@
   {"id":"cross-language","tenant":"novacart","query":"warranty manufacturing defect","expected":"warranty","language":"fr"},
   {"id":"ambiguous","tenant":"novacart","query":"How does this work?","expected":null},
   {"id":"unsupported","tenant":"novacart","query":"Do you sell refrigerators in Tokyo?","expected":null},
-  {"id":"tenant-isolation","tenant":"orbit-outlet","query":"What is the NovaCart thirty day return window?","expected":null}
+  {"id":"tenant-isolation","tenant":"orbit-outlet","query":"What is the NovaCart thirty day return window?","expected":null},
+  {"id":"en-shipping-preparation","tenant":"novacart","query":"How quickly do in-stock purchases leave the warehouse?","expected":"shipping"},
+  {"id":"en-shipping-tracking","tenant":"novacart","query":"Why is there no carrier tracking link yet?","expected":"shipping"},
+  {"id":"en-return-shipping-fee","tenant":"novacart","query":"Will the original delivery fee be paid back on a return?","expected":"returns_refunds"},
+  {"id":"en-final-sale-confusion","tenant":"novacart","query":"Can a final-sale keyboard be sent back under the normal return policy?","expected":"returns_refunds"},
+  {"id":"en-damage-vs-warranty","tenant":"novacart","query":"My parcel arrived crushed; should I use warranty service or the delivery damage process?","expected":"damaged_item"},
+  {"id":"en-warranty-exclusion","tenant":"novacart","query":"Is liquid exposure covered as a factory defect?","expected":"warranty"},
+  {"id":"en-account-export","tenant":"novacart","query":"How can I obtain an export of my personal account data?","expected":"privacy_account"},
+  {"id":"en-product-adapter","tenant":"novacart","query":"Which charger has a pair of USB-C sockets?","expected":"products"},
+  {"id":"fr-warranty-exclusion","tenant":"novacart","query":"Les dommages accidentels sont-ils couverts par la garantie?","expected":"warranty","language":"fr"},
+  {"id":"fr-account-delete","tenant":"novacart","query":"Puis-je demander la suppression de mes donnÃ©es de compte?","expected":"privacy_account","language":"fr"},
+  {"id":"fr-product-hub","tenant":"novacart","query":"Quel concentrateur comprend HDMI et Ethernet?","expected":"products","language":"fr"},
+  {"id":"cross-language-damaged","tenant":"novacart","query":"swollen battery safety","expected":"damaged_item","language":"fr"},
+  {"id":"unsupported-installation","tenant":"novacart","query":"Can a technician install a television on my wall?","expected":null},
+  {"id":"superseded-content","tenant":"novacart","query":"CometVoucher archival terms","expected":null},
+  {"id":"deleted-content","tenant":"novacart","query":"LunarPager X9 calibration","expected":null},
+  {"id":"tenant-isolation-product","tenant":"orbit-outlet","query":"Does the NovaView 4K webcam include NovaCart's privacy shutter?","expected":null}
 ]

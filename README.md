@@ -53,9 +53,11 @@ M3 runs the mock commerce API but does not connect it to the main application ye
 
 ## Knowledge ingestion and retrieval
 
-M4 ships original synthetic NovaCart policies in `backend/knowledge-base`, in English and French. Admin uploads accept UTF-8 Markdown/plain text and PDFs up to 2 MiB. The API stores a pending immutable version and queues ARQ; the worker extracts text, creates deterministic overlapping chunks, generates deterministic local test embeddings, and marks the version ready or failed. The local `fake` provider is the only M4 embedding provider and never makes a network or paid API call.
+M4 ships original synthetic NovaCart policies in `backend/knowledge-base`, in English and French. Admin uploads accept UTF-8 Markdown/plain text and PDFs up to 2 MiB. The API stores a pending immutable version and queues ARQ; the worker extracts text, creates deterministic overlapping chunks, generates embeddings, and marks the version ready or failed.
 
-Only approved, non-deleted documents' active ready version is searchable. Retrieval combines PostgreSQL full-text rank and pgvector cosine candidates with reciprocal-rank fusion, followed by a deterministic bilingual local reranker. It returns passages, scores, and persisted citation receipts; it never generates an answer. Seed and evaluate with:
+Portfolio/demo configuration uses OpenAI `text-embedding-3-small` at 1,536 dimensions and the local `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` reranker. `NOVACART_OPENAI_API_KEY` is required in that mode. Automated tests use the explicit `fake` embedding provider and deterministic reranker at the same 1,536 dimensions. Production rejects either test provider, and a selected real provider fails explicitly rather than falling back. Model weights persist in the Compose `model_cache` volume.
+
+Only approved, non-deleted documents' active ready version with the current indexing fingerprint is searchable. Retrieval combines PostgreSQL full-text rank and pgvector cosine candidates with reciprocal-rank fusion, followed by the configured reranker. It returns passages, scores, and persisted citation receipts; it never generates an answer. Seed and evaluate with:
 
 ```powershell
 docker compose exec -T api python -m app.knowledge.seed
@@ -63,7 +65,7 @@ docker compose exec -T api python -m app.knowledge.seed # idempotent
 docker compose exec -T api python -m app.knowledge.evaluation
 ```
 
-The measured M4 fixture result is Recall@5 `1.0`, MRR `1.0`, with zero results for the three unsupported/isolation cases. These are small deterministic development-corpus results, not a production quality claim. See [API documentation](docs/API.md) for lifecycle and retrieval routes.
+The expanded 29-case dataset reports Recall@5, MRR, unsupported/isolation false positives, mean latency and p95 latency from actual retrieval. Test-provider and real-provider runs must be labeled separately; a test-provider score is not a production semantic-quality claim. See [API documentation](docs/API.md) for lifecycle and retrieval routes.
 
 ## Migrations and worker verification
 

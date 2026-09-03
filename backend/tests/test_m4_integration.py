@@ -10,12 +10,13 @@ import pytest
 from fastapi import UploadFile
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.dependencies import get_db_session
 from app.api.v1.knowledge import upload_document
 from app.core.config import Settings
-from app.domain.models import DocumentVersion, IngestionStatus, Role
+from app.domain.models import ChunkMetadata, DocumentVersion, IngestionStatus, Role
 from app.infrastructure.database import create_database_engine, set_tenant_scope
 from app.knowledge.ingestion import process_document_version
 from app.knowledge.retrieval import Citation, retrieve_passages, validate_citation
@@ -112,6 +113,18 @@ async def test_admin_lifecycle_hybrid_retrieval_and_citation_validation(
     async with factory() as session:
         result = await process_document_version(session, settings, ORGANIZATIONS[0].id, version_id)
         assert result["status"] == "ready"
+        await set_tenant_scope(session, ORGANIZATIONS[0].id)
+        indexed_version = await session.get(DocumentVersion, version_id)
+        indexed_chunk = await session.scalar(
+            select(ChunkMetadata).where(ChunkMetadata.document_version_id == version_id)
+        )
+        assert indexed_version is not None
+        assert indexed_version.embedding_dimension == 1536
+        assert indexed_version.embedding_provider == "fake"
+        assert indexed_version.indexing_fingerprint
+        assert indexed_chunk is not None and indexed_chunk.embedding is not None
+        assert len(indexed_chunk.embedding) == 1536
+        assert indexed_chunk.indexing_fingerprint == indexed_version.indexing_fingerprint
         repeat = await process_document_version(session, settings, ORGANIZATIONS[0].id, version_id)
         assert repeat["idempotent"] is True
         assert await process_document_version(session, settings, ORGANIZATIONS[0].id, uuid4()) == {
