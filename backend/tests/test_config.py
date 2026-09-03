@@ -5,7 +5,12 @@ from app.core.config import Settings
 
 
 def test_mock_settings_do_not_require_external_credentials() -> None:
-    settings = Settings(app_env="test", openai_api_key=None)
+    settings = Settings(
+        app_env="test",
+        embedding_provider="fake",
+        reranker_provider="deterministic",
+        openai_api_key=None,
+    )
     assert settings.commerce_provider == "mock"
     assert settings.crm_provider == "mock"
     assert settings.openai_api_key is None

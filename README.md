@@ -1,8 +1,8 @@
 # NovaCart AI Customer Support Agent
 
-NovaCart is a standalone portfolio project for a production-style customer-support platform. **Milestones M0 through M4 are complete.** M4 adds tenant-scoped, versioned English/French knowledge ingestion and structured hybrid retrieval with validated citations.
+NovaCart is a standalone portfolio project for a production-style customer-support platform. **Milestones M0 through M5 are complete.** M5 adds explicit commerce/CRM provider ports, production-style mock HTTP adapters, and credential-gated Shopify and HubSpot adapters.
 
-No chatbot or AI answer generation, LangGraph graph, main-application commerce adapter, Shopify/CRM integration, streaming, production OIDC or final product interface is implemented. Those remain later milestones. Commerce orders belong only to the mock service, not NovaCart PostgreSQL.
+No chatbot or AI answer generation, LangGraph graph, agent tool calling, streaming, production OIDC or final product interface is implemented. Live Shopify/HubSpot validation is also deferred. Commerce orders remain owned by the selected provider, never NovaCart PostgreSQL.
 
 ## Foundation services
 
@@ -14,6 +14,7 @@ No chatbot or AI answer generation, LangGraph graph, main-application commerce a
 | PostgreSQL | `127.0.0.1:5432` | Loopback-only for native migrations/tests; persistent PostgreSQL 17 + pgvector volume |
 | Redis | Internal only | ARQ queue and worker health; persistent named volume |
 | Mock commerce | <http://localhost:8080> | Synthetic external commerce API with an independent SQLite volume |
+| Mock CRM | <http://localhost:8090> | Synthetic contacts and notes API with an independent SQLite volume |
 
 Health endpoints:
 
@@ -49,7 +50,26 @@ COMMERCE_PROVIDER=mock
 CRM_PROVIDER=mock
 ```
 
-M3 runs the mock commerce API but does not connect it to the main application yet. It never invokes OpenAI, Shopify, or HubSpot. Optional external credentials may remain empty. Demo identity and commerce failure simulation are explicitly enabled only for local development and rejected in production configuration.
+Mock mode never invokes Shopify or HubSpot, and their credentials may remain empty. Demo identity and provider failure simulation are explicitly enabled only for local development and rejected in production configuration.
+
+M5 connects application-owned provider ports to mock commerce and persistent mock CRM by default. No Shopify or HubSpot account is required. Integration modes are independently selectable:
+
+```text
+# Local demo
+COMMERCE_PROVIDER=mock
+CRM_PROVIDER=mock
+
+# Optional integration mode
+COMMERCE_PROVIDER=shopify
+NOVACART_SHOPIFY_STORE_DOMAIN=your-development-store.myshopify.com
+NOVACART_SHOPIFY_ACCESS_TOKEN=stored-secret
+NOVACART_SHOPIFY_API_VERSION=2026-01
+
+CRM_PROVIDER=hubspot
+NOVACART_HUBSPOT_ACCESS_TOKEN=stored-secret
+```
+
+Missing credentials for a selected real provider fail startup configuration; mixed modes work and there is no automatic mock fallback. Live vendor validation remains M12/M13. Shopify refund creation is intentionally unsupported in M5 because it would move money.
 
 ## Knowledge ingestion and retrieval
 

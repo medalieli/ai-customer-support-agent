@@ -66,6 +66,14 @@ class Settings(BaseSettings):
         default="mock",
         validation_alias=AliasChoices("CRM_PROVIDER", "NOVACART_CRM_PROVIDER"),
     )
+    provider_read_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    provider_write_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    provider_max_retries: int = Field(default=2, ge=0, le=3)
+    mock_commerce_url: AnyHttpUrl = AnyHttpUrl("http://mock-commerce:8080")
+    mock_commerce_internal_api_key: SecretStr = SecretStr("development-commerce-key")
+    mock_crm_url: AnyHttpUrl = AnyHttpUrl("http://mock-crm:8090")
+    mock_crm_internal_api_key: SecretStr = SecretStr("development-crm-key")
+    shopify_api_version: str = "2026-01"
     openai_api_key: SecretStr | None = None
     shopify_store_domain: str | None = None
     shopify_access_token: SecretStr | None = None
@@ -105,8 +113,18 @@ class Settings(BaseSettings):
             self.shopify_store_domain and self.shopify_access_token
         ):
             raise ValueError("Shopify mode requires its store domain and access token")
+        if (
+            self.commerce_provider == "mock"
+            and len(self.mock_commerce_internal_api_key.get_secret_value()) < 16
+        ):
+            raise ValueError("Mock commerce mode requires its internal API key")
         if self.crm_provider == "hubspot" and not self.hubspot_access_token:
             raise ValueError("HubSpot mode requires its access token")
+        if (
+            self.crm_provider == "mock"
+            and len(self.mock_crm_internal_api_key.get_secret_value()) < 16
+        ):
+            raise ValueError("Mock CRM mode requires its internal API key")
         return self
 
 

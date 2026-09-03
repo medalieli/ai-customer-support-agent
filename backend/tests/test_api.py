@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from pydantic import SecretStr
 
 from app.api.health import DependencyStatus, get_health_checker
 from app.core.config import Settings
@@ -69,7 +70,7 @@ async def test_readiness_success() -> None:
 @pytest.mark.asyncio
 async def test_readiness_failure_is_safe() -> None:
     secret = "do-not-leak-password"
-    app = create_app(Settings(app_env="test", postgres_password=secret))  # type: ignore[arg-type]
+    app = create_app(Settings(app_env="test", postgres_password=SecretStr(secret)))
     app.dependency_overrides[get_health_checker] = lambda: StubHealthChecker(
         DependencyStatus(postgres=False, redis=False, pgvector=False)
     )

@@ -1,17 +1,17 @@
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import Cookie, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.infrastructure.database import get_db_session
+from app.infrastructure.database import get_db_session as get_db_session
 from app.services.auth import AuthenticationError, AuthService, Principal
 
 DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
 
 
 def get_request_settings(request: Request) -> Settings:
-    return request.app.state.settings
+    return cast(Settings, request.app.state.settings)
 
 
 RequestSettings = Annotated[Settings, Depends(get_request_settings)]

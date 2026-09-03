@@ -43,23 +43,25 @@ class ConversationRepository:
     async def get_for_customer(
         self, organization_id: UUID, customer_id: UUID, conversation_id: UUID
     ) -> Conversation | None:
-        return await self.session.scalar(
+        result = await self.session.scalars(
             select(Conversation).where(
                 Conversation.organization_id == organization_id,
                 Conversation.customer_id == customer_id,
                 Conversation.id == conversation_id,
             )
         )
+        return result.one_or_none()
 
     async def get_for_staff(
         self, organization_id: UUID, conversation_id: UUID
     ) -> Conversation | None:
-        return await self.session.scalar(
+        result = await self.session.scalars(
             select(Conversation).where(
                 Conversation.organization_id == organization_id,
                 Conversation.id == conversation_id,
             )
         )
+        return result.one_or_none()
 
     async def add_message(
         self,

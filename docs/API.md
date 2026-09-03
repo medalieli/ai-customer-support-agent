@@ -79,3 +79,9 @@ All routes are under `/api/v1/knowledge` and use the M2 HttpOnly session. Docume
 Uploads accept `.md`, `.txt`, and `.pdf`, at most 2 MiB. Duplicate `(document, language, checksum)` uploads return the existing version. Search results contain lexical, vector, fusion and rerank scores plus a citation receipt with document/version/chunk IDs, title, language, section/page and exact snippet. Validation succeeds only when every supplied field matches a durable tenant-owned receipt and current stored chunk checksum.
 
 Search is eligible only after the active version has a matching 1,536-dimensional indexing fingerprint. A provider/model/chunk-configuration change leaves the version pending until ARQ reingests it. Real embedding or reranker failures return safe explicit codes such as `embedding_rate_limited`, `embedding_timeout`, `embedding_unavailable`, or `reranker_unavailable`; the API never substitutes a test provider.
+
+## M5 outbound provider contracts
+
+M5 adds no public main-API routes. `CommerceProviderV1` normalizes order lookup, tracking, guarded address mutation and refund-request creation. `CrmProviderV1` normalizes contact lookup/upsert and conversation-note creation. Every method accepts a trusted `ProviderContext`; browser/body identity never establishes tenant scope.
+
+Mock CRM listens on `http://localhost:8090`, with `/health/live`, `/health/ready`, and `/docs`. Its `/v1` contacts and notes require `X-Internal-API-Key`, `X-Organization-Id`, and `Idempotency-Key` for writes. Authenticated `X-Mock-Failure` simulation is development/test-only. Shared adapter errors are `not_found`, `not_authorized`, `conflict`, `validation`, `unsupported`, `rate_limited`, `timeout`, and `unavailable`.

@@ -1,0 +1,1 @@
+"""Persistent synthetic CRM service."""

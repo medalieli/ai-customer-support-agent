@@ -110,6 +110,29 @@ services:
     restart: unless-stopped
     networks: [backend]
 
+  mock-crm:
+    build:
+      context: ./mock-crm
+    env_file: .env
+    volumes:
+      - mock_crm_data:/data
+    ports:
+      - "127.0.0.1:${MOCK_CRM_HOST_PORT:-8090}:8090"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health/ready', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks: [backend]
+
   frontend:
     build:
       context: ./frontend
@@ -140,4 +163,5 @@ volumes:
   postgres_data:
   redis_data:
   mock_commerce_data:
+  mock_crm_data:
   model_cache:

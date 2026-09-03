@@ -35,6 +35,12 @@ Application-owned `CommerceProviderV1` and `CrmProviderV1` contracts accept an e
 
 Normalized models include opaque `external_ref`, ISO-4217 decimal money, ISO-8601 UTC timestamps, canonical address fields, explicit nullable fields, and mapped lifecycle enums while retaining a non-sensitive `provider_status` for diagnostics. Adapter payloads never enter prompts unfiltered. Feature capability checks happen before proposals. Mock and real adapters pass the same contract suite.
 
+### M5 provider integration boundary
+
+M5 implements the application-owned async ports and outbound adapters without exposing them as customer or model tools. `ProviderContext` carries the trusted organization, actor, optional external customer, correlation ID and write idempotency key. Mock adapters authenticate over internal HTTP; Shopify uses the versioned Admin GraphQL endpoint and HubSpot uses bearer-authenticated CRM contacts/notes endpoints. Provider failures map to the shared typed taxonomy, only safe reads retry, and writes require stable idempotency keys.
+
+Mock CRM is a separate FastAPI/SQLite source of truth for synthetic contacts and notes. Shopify `refundCreate` would move money, so the M5 adapter returns `unsupported` for refund-request creation; later guarded and human-approved refund work owns that workflow. A selected real adapter never falls back to mock.
+
 ### M3 mock-commerce implementation
 
 The mock commerce platform is a separate FastAPI process on the backend network and owns a dedicated persistent SQLite volume. This deliberately models an external system: NovaCart PostgreSQL contains no authoritative orders and the main API has no commerce adapter in M3. Calls require an internal shared-secret header plus trusted organization and external-customer scope. All lookup predicates use the full scope; an order number or opaque order reference alone is insufficient.

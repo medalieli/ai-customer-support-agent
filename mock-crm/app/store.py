@@ -1,0 +1,194 @@
+import hashlib
+import json
+import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from uuid import NAMESPACE_URL, uuid5
+
+from app.errors import CrmError
+
+
+class CrmStore:
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+    def connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def initialize(self) -> None:
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        with self.connect() as db:
+            db.executescript("""
+            CREATE TABLE IF NOT EXISTS contacts (
+              organization_id TEXT NOT NULL, external_ref TEXT NOT NULL, email TEXT NOT NULL,
+              data TEXT NOT NULL, version INTEGER NOT NULL,
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+              PRIMARY KEY (organization_id, external_ref), UNIQUE (organization_id, email));
+            CREATE TABLE IF NOT EXISTS notes (
+              organization_id TEXT NOT NULL, external_ref TEXT NOT NULL, contact_ref TEXT NOT NULL,
+              body TEXT NOT NULL, created_at TEXT NOT NULL,
+              PRIMARY KEY (organization_id, external_ref));
+            CREATE TABLE IF NOT EXISTS idempotency (
+              organization_id TEXT NOT NULL, operation TEXT NOT NULL, key TEXT NOT NULL,
+              fingerprint TEXT NOT NULL, response TEXT NOT NULL,
+              PRIMARY KEY (organization_id, operation, key));
+            """)
+            self._seed(db)
+
+    def _seed(self, db: sqlite3.Connection) -> None:
+        fixtures = [
+            (
+                "10000000-0000-0000-0000-000000000001",
+                "amira.benali@example.test",
+                "Amira",
+                "Benali",
+                "customer",
+                "en",
+            ),
+            (
+                "10000000-0000-0000-0000-000000000001",
+                "lucas.martin@example.test",
+                "Lucas",
+                "Martin",
+                "lead",
+                "fr",
+            ),
+            (
+                "20000000-0000-0000-0000-000000000001",
+                "nora.chen@example.test",
+                "Nora",
+                "Chen",
+                "customer",
+                "en",
+            ),
+        ]
+        now = datetime.now(timezone.utc).isoformat()
+        for org, email, first, last, stage, locale in fixtures:
+            ref = str(uuid5(NAMESPACE_URL, f"{org}:{email}"))
+            data = json.dumps(
+                {
+                    "email": email,
+                    "first_name": first,
+                    "last_name": last,
+                    "lifecycle_stage": stage,
+                    "locale": locale,
+                    "company": None,
+                }
+            )
+            db.execute(
+                "INSERT OR IGNORE INTO contacts VALUES (?,?,?,?,1,?,?)",
+                (org, ref, email, data, now, now),
+            )
+
+    @staticmethod
+    def _contact(row: sqlite3.Row) -> dict[str, Any]:
+        data: dict[str, Any] = json.loads(row["data"])
+        return {
+            **data,
+            "external_ref": row["external_ref"],
+            "provider_status": "active",
+            "version": str(row["version"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def find(self, organization_id: str, email: str) -> dict[str, Any] | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT * FROM contacts WHERE organization_id=? AND lower(email)=lower(?)",
+                (organization_id, email),
+            ).fetchone()
+            return self._contact(row) if row else None
+
+    def upsert(self, organization_id: str, key: str, payload: dict[str, Any]) -> dict[str, Any]:
+        fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            replay = db.execute(
+                """SELECT * FROM idempotency
+                   WHERE organization_id=? AND operation='contact' AND key=?""",
+                (organization_id, key),
+            ).fetchone()
+            if replay:
+                if replay["fingerprint"] != fingerprint:
+                    raise CrmError(409, "idempotency_conflict", "The idempotency key was reused.")
+                result: dict[str, Any] = json.loads(replay["response"])
+                return result
+            existing = db.execute(
+                "SELECT * FROM contacts WHERE organization_id=? AND lower(email)=lower(?)",
+                (organization_id, payload["email"]),
+            ).fetchone()
+            now = datetime.now(timezone.utc).isoformat()
+            ref = (
+                existing["external_ref"]
+                if existing
+                else str(uuid5(NAMESPACE_URL, f"{organization_id}:{payload['email'].lower()}"))
+            )
+            version = int(existing["version"]) + 1 if existing else 1
+            created = existing["created_at"] if existing else now
+            db.execute(
+                "INSERT OR REPLACE INTO contacts VALUES (?,?,?,?,?,?,?)",
+                (
+                    organization_id,
+                    ref,
+                    payload["email"],
+                    json.dumps(payload),
+                    version,
+                    created,
+                    now,
+                ),
+            )
+            result = {
+                **payload,
+                "external_ref": ref,
+                "provider_status": "active",
+                "version": str(version),
+                "created_at": created,
+                "updated_at": now,
+            }
+            db.execute(
+                "INSERT INTO idempotency VALUES (?,?,?,?,?)",
+                (organization_id, "contact", key, fingerprint, json.dumps(result)),
+            )
+            return result
+
+    def add_note(
+        self, organization_id: str, contact_ref: str, key: str, body: str
+    ) -> dict[str, Any]:
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute(
+                "SELECT 1 FROM contacts WHERE organization_id=? AND external_ref=?",
+                (organization_id, contact_ref),
+            ).fetchone():
+                raise CrmError(404, "not_found", "The contact was not found.")
+            fingerprint = hashlib.sha256(body.encode()).hexdigest()
+            replay = db.execute(
+                "SELECT * FROM idempotency WHERE organization_id=? AND operation='note' AND key=?",
+                (organization_id, key),
+            ).fetchone()
+            if replay:
+                if replay["fingerprint"] != fingerprint:
+                    raise CrmError(409, "idempotency_conflict", "The idempotency key was reused.")
+                result: dict[str, Any] = json.loads(replay["response"])
+                return result
+            now = datetime.now(timezone.utc).isoformat()
+            ref = str(uuid5(NAMESPACE_URL, f"{organization_id}:{key}"))
+            result = {
+                "external_ref": ref,
+                "contact_ref": contact_ref,
+                "body": body,
+                "created_at": now,
+            }
+            db.execute(
+                "INSERT INTO notes VALUES (?,?,?,?,?)",
+                (organization_id, ref, contact_ref, body, now),
+            )
+            db.execute(
+                "INSERT INTO idempotency VALUES (?,?,?,?,?)",
+                (organization_id, "note", key, fingerprint, json.dumps(result)),
+            )
+            return result

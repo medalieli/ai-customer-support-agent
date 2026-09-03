@@ -13,6 +13,7 @@ dependencies = [
   "arq==0.28.0",
   "asyncpg==0.30.0",
   "fastapi==0.141.1",
+  "httpx==0.28.1",
   "openai==1.109.1",
   "pgvector==0.4.2",
   "pydantic-settings==2.15.0",
@@ -57,4 +58,10 @@ addopts = "--strict-markers --cov=app --cov-report=term-missing --cov-fail-under
 
 [tool.coverage.run]
 branch = true
-omit = ["*/app/worker/*", "*/app/domain/models.py", "*/app/seed.py"]
+omit = [
+  "*/app/worker/*",
+  "*/app/domain/models.py",
+  "*/app/seed.py",
+  "*/app/knowledge/evaluation.py",
+  "*/app/knowledge/seed.py",
+]

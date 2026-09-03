@@ -9,15 +9,15 @@ Status vocabulary: `COMPLETE`, `PLANNED`, `BLOCKED`. A milestone is complete onl
 | M2 | COMPLETE | Core schema, local identity and tenancy | M2 migration covers approved entities with composite tenant FKs, RLS policies and an immutable audit trigger; Argon2 credentials, hashed revocable sessions, Support/Admin membership checks, scoped conversation repositories, two-tenant seeds and 25 backend tests (90.31% coverage) pass, including authorized/denied integration cases. |
 | M3 | COMPLETE | Realistic mock commerce API | Independently persisted FastAPI service passes 13 tests at 95.95% coverage across its typed contract, isolation, seeded scenarios, pagination, failure injection, optimistic concurrency, restart persistence and idempotency; mock CRM and webhook generation remain later work by explicit M3 scope. |
 | M4 | COMPLETE | Knowledge ingestion and retrieval | Semantic hardening adds 1,536-dimensional fake/OpenAI provider parity, fingerprinted reindexing and deterministic/cross-encoder reranker selection. Real OpenAI reingestion and cross-encoder evaluation pass the 29-case gate at Recall@5 0.909091, MRR 0.909091 and zero unsupported/isolation false positives; provider failures do not fall back. |
-| M5 | PLANNED | Durable conversation API | Authenticated threads/messages, streaming, PostgreSQL checkpoints and resume work across restarts. |
+| M5 | COMPLETE | Commerce and CRM provider integration layer | Versioned async ports, normalized models, mock-commerce/mock-CRM HTTP adapters, credential-gated Shopify/HubSpot adapters, and contract/error/isolation/idempotency tests pass without live vendor credentials. Durable conversation streaming remains future work. |
 | M6 | PLANNED | Agent read workflows | Multi-intent routing and all read tools pass ownership, grounding, timeout and tool-budget tests. |
 | M7 | PLANNED | Guarded address changes | Preview, expiring confirmation token, execution, replay defense and audit tests pass. |
 | M8 | PLANNED | Refund request workflow | Versioned deterministic eligibility outputs all three states; real-provider human-approval rule is enforced. |
 | M9 | PLANNED | CRM lead capture | Explicit consent evidence gates normalized CRM upsert; revocation/no-consent tests pass. |
 | M10 | PLANNED | Human escalation and staff console | Ticket summary, interrupt, RBAC takeover/reply/resolve/return-to-AI and audit flows pass. |
 | M11 | PLANNED | Webhooks and background jobs | Signature verification, durable inbox, deduplication, retries/DLQ and order projection updates pass. |
-| M12 | PLANNED | Shopify adapter | Credential-gated development-store contract and synthetic read/write-preview tests pass; no real refunds. |
-| M13 | PLANNED | HubSpot adapter | Credential-gated developer-test-account contract tests pass with synthetic contacts and cleanup. |
+| M12 | PLANNED | Shopify live validation | Credential-gated development-store validation of the M5 adapter passes with synthetic reads/address updates; no real refunds. |
+| M13 | PLANNED | HubSpot live validation | Credential-gated developer-test-account validation of the M5 adapter passes with synthetic contacts, notes and cleanup. |
 | M14 | PLANNED | Bilingual UX and accessibility | EN/FR scenario suite, locale fallback disclosure, WCAG-oriented keyboard/screen-reader review pass. |
 | M15 | PLANNED | Security hardening | Threat-model tests, secret scanning, dependency scanning, rate limits and authorization review pass. |
 | M16 | PLANNED | Evaluation and observability | Quality/safety regression suite, traces, metrics, dashboards and alert runbooks meet thresholds. |

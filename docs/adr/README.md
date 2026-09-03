@@ -14,3 +14,4 @@ ADRs are accepted for M0 and may be superseded only by a later numbered record. 
 | [008](008-human-handoff.md) | LangGraph interrupt/resume and explicit staff ownership |
 | [009](009-model-api-and-privacy.md) | Responses API strict tools and no private reasoning storage |
 | [010](010-arq-background-worker.md) | ARQ for Redis-backed Python jobs |
+| [011](011-provider-integration-sequencing.md) | Deliver provider adapters in M5; reserve M12/M13 for live validation |

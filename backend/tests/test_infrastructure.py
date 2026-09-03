@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import SecretStr
 
 from app.core.config import Settings
 from app.infrastructure.database import close_database_engine, create_database_engine
@@ -8,9 +9,7 @@ from app.infrastructure.redis import close_redis_client, create_redis_client
 
 
 def test_database_engine_uses_validated_settings() -> None:
-    engine = create_database_engine(
-        Settings(app_env="test", postgres_password="")  # type: ignore[arg-type]
-    )
+    engine = create_database_engine(Settings(app_env="test", postgres_password=SecretStr("")))
     assert engine.url.drivername == "postgresql+asyncpg"
     assert engine.url.password == ""
 

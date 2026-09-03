@@ -88,6 +88,25 @@ jobs:
       - run: mypy app tests
       - run: pytest
 
+  mock-crm:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: mock-crm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: mock-crm/pyproject.toml
+      - run: python -m pip install --upgrade pip==25.2
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff format --check .
+      - run: ruff check .
+      - run: mypy app tests
+      - run: pytest
+
   docker:
     runs-on: ubuntu-24.04
     steps:
