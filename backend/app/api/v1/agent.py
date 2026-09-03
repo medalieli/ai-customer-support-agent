@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from typing import Any, cast
 from uuid import UUID
 
@@ -25,6 +26,7 @@ from app.providers.factory import create_commerce_provider, create_crm_provider
 from app.repositories.conversations import ConversationRepository
 from app.services.address_actions import AddressActionError, AddressActionService, AddressProposal
 from app.services.auth import AuthorizationError, ResourceNotFoundError
+from app.services.refunds import RefundError, RefundProposal, RefundService
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -50,6 +52,27 @@ class ResumeRequest(BaseModel):
 
 
 def _confirmation(proposal: object | None) -> dict[str, object] | None:
+    if isinstance(proposal, RefundProposal):
+        if proposal.action_id is None:
+            return None
+        return {
+            "action_id": str(proposal.action_id),
+            "action_hash": proposal.action_hash,
+            "confirmation_token": proposal.confirmation_token,
+            "expires_at": proposal.expires_at.isoformat() if proposal.expires_at else None,
+            "order_number": proposal.order_number,
+            "item": {"sku": proposal.sku, "quantity": proposal.quantity},
+            "amount": {"amount": str(proposal.amount), "currency": proposal.currency},
+            "outcome": proposal.outcome.value,
+            "policy_version": proposal.policy_version,
+            "ruleset_version": proposal.ruleset_version,
+            "citations": list(proposal.citations),
+            "consequences": [
+                "Confirmation submits a refund request; it does not move money.",
+                "Changed order or policy state requires a new preview.",
+            ],
+            "confirmation_required": True,
+        }
     if not isinstance(proposal, AddressProposal):
         return None
     return {
@@ -110,8 +133,17 @@ async def submit_message(
             checkpoint_version=thread.checkpoint_version,
         )
     sensitive_address_turn = looks_like_address_change(payload.content)
+    sensitive_refund_turn = bool(
+        re.search(
+            r"\b(?:refund|rembours|return request|demande de retour)\b", payload.content, re.I
+        )
+    )
     stored_content = (
-        "[shipping address change request redacted]" if sensitive_address_turn else payload.content
+        "[shipping address change request redacted]"
+        if sensitive_address_turn
+        else "[refund request details redacted]"
+        if sensitive_refund_turn
+        else payload.content
     )
     await conversations.add_message(
         conversation,
@@ -199,7 +231,7 @@ async def submit_message(
         status=run.status,
         duplicate=False,
         checkpoint_version=thread.checkpoint_version,
-        confirmation=_confirmation(context.address_proposal),
+        confirmation=_confirmation(context.address_proposal or context.refund_proposal),
     )
 
 
@@ -291,9 +323,14 @@ async def resume_thread(
 
             raise HTTPException(status_code=422, detail="explicit_confirmation_required")
         try:
-            outcome = await AddressActionService(
-                session, settings, create_commerce_provider(settings)
-            ).decide(
+            service: Any
+            if pending.action_type == "refund_request":
+                service = RefundService(session, settings, create_commerce_provider(settings))
+            else:
+                service = AddressActionService(
+                    session, settings, create_commerce_provider(settings)
+                )
+            outcome = await service.decide(
                 organization_id=principal.organization_id,
                 customer_id=principal.subject_id,
                 customer_ref=customer.provider_customer_ref,
@@ -304,7 +341,7 @@ async def resume_thread(
                 decision=decision,
                 correlation_id=str(run.id),
             )
-        except AddressActionError as exc:
+        except (AddressActionError, RefundError) as exc:
             from fastapi import HTTPException
 
             run.status = "failed"

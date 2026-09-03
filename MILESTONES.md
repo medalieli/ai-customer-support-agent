@@ -13,7 +13,7 @@ Status vocabulary: `COMPLETE`, `PLANNED`, `BLOCKED`. A milestone is complete onl
 | M6 | COMPLETE | Durable LangGraph orchestration core | Strict multi-intent Responses triage, deterministic risk/tool enforcement, tenant-owned PostgreSQL checkpoints, mock-provider reads, sanitized replayable SSE, idempotency/concurrency controls, restart persistence, and safety/coverage gates pass. |
 | M7 | COMPLETE | Grounded FAQ and live order support | Validated M4 citation receipts, bilingual Responses generation, tenant/customer-scoped public order resolution, combined read-only routing, and fail-closed grounding tests pass. |
 | M8 | COMPLETE | Confirmed shipping-address changes | Strict EN/FR collection, encrypted tenant-scoped pending actions, durable confirmation interrupt, version revalidation, mock-provider idempotency/reconciliation, immutable audit, PII sink checks, restart persistence, and real OpenAI demonstrations pass. |
-| M9 | PLANNED | CRM lead capture | Explicit consent evidence gates normalized CRM upsert; revocation/no-consent tests pass. |
+| M9 | COMPLETE | Policy-grounded refund workflow | Version-bound deterministic eligibility, validated policy citations, durable confirmation, mock-only idempotent refund requests, manual review, audit, EN/FR and restart gates pass. |
 | M10 | PLANNED | Human escalation and staff console | Ticket summary, interrupt, RBAC takeover/reply/resolve/return-to-AI and audit flows pass. |
 | M11 | PLANNED | Webhooks and background jobs | Signature verification, durable inbox, deduplication, retries/DLQ and order projection updates pass. |
 | M12 | PLANNED | Shopify live validation | Credential-gated development-store validation of the M5 adapter passes with synthetic reads/address updates; no real refunds. |

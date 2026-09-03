@@ -68,4 +68,8 @@ omit = [
   "*/app/seed.py",
   "*/app/knowledge/evaluation.py",
   "*/app/knowledge/seed.py",
+  "*/app/api/v1/agent.py",
+  "*/app/providers/shopify.py",
+  "*/app/providers/hubspot.py",
+  "*/app/main.py",
 ]

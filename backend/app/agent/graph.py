@@ -11,6 +11,7 @@ from app.agent.address_parser import extract_proposed_address
 from app.agent.answers import AnswerModel
 from app.agent.state import (
     AgentState,
+    CitationRef,
     IntentLabel,
     RiskLevel,
     SanitizedResult,
@@ -23,6 +24,13 @@ from app.core.config import Settings
 from app.knowledge.retrieval import Citation, validate_citation
 from app.providers.order_numbers import extract_order_number
 from app.services.address_actions import AddressActionError, AddressActionService
+from app.services.refunds import (
+    RefundError,
+    RefundOutcome,
+    RefundService,
+    extract_refund_order_number,
+    parse_refund_intent,
+)
 
 EventEmitter = Callable[[str, dict[str, object]], Awaitable[None]]
 
@@ -237,8 +245,81 @@ class AgentGraph:
                 "pending_action_hash": proposal.action_hash,
                 "step_count": state.step_count + 1,
             }
+        if IntentLabel.REFUND in labels:
+            order_ref = extract_refund_order_number(message, order_ref)
+            if not all(
+                (
+                    self.context.customer_id,
+                    self.context.session_id,
+                    self.context.conversation_id,
+                    self.context.run_id,
+                )
+            ):
+                return {
+                    "selected_tools": [
+                        SelectedTool(
+                            name="create_refund_request",
+                            arguments={"request_summary": message[:500]},
+                        )
+                    ],
+                    "step_count": state.step_count + 1,
+                }
+            try:
+                refund_intent = parse_refund_intent(message, order_ref)
+            except RefundError as exc:
+                return {
+                    "status": "clarification_required",
+                    "escalation_reason": exc.code,
+                    "step_count": state.step_count + 1,
+                }
+            try:
+                refund_proposal = await RefundService(
+                    self.context.session, self.settings, self.context.commerce
+                ).propose(
+                    organization_id=self.context.organization_id,
+                    customer_id=cast(UUID, self.context.customer_id),
+                    customer_ref=self.context.customer_ref,
+                    session_id=cast(UUID, self.context.session_id),
+                    conversation_id=cast(UUID, self.context.conversation_id),
+                    run_id=cast(UUID, self.context.run_id),
+                    intent=refund_intent,
+                    locale=locale,
+                )
+            except RefundError as exc:
+                return {
+                    "status": "failed",
+                    "escalation_reason": exc.code,
+                    "step_count": state.step_count + 1,
+                }
+            self.context.refund_proposal = refund_proposal
+            citations = [CitationRef.model_validate(item) for item in refund_proposal.citations]
+            result = SanitizedResult(
+                tool="refund_eligibility",
+                status="completed",
+                data={
+                    "outcome": refund_proposal.outcome.value,
+                    "reason_codes": list(refund_proposal.reason_codes),
+                    "order_number": refund_proposal.order_number,
+                    "policy_version": refund_proposal.policy_version,
+                    "ruleset_version": refund_proposal.ruleset_version,
+                },
+            )
+            if refund_proposal.outcome == RefundOutcome.ELIGIBLE:
+                await self.emit("confirmation_required", {"status": "confirmation_required"})
+                return {
+                    "status": "confirmation_required",
+                    "pending_action_id": str(refund_proposal.action_id),
+                    "pending_action_hash": refund_proposal.action_hash,
+                    "sanitized_results": [result],
+                    "citations": citations,
+                    "step_count": state.step_count + 1,
+                }
+            return {
+                "sanitized_results": [result],
+                "citations": citations,
+                "step_count": state.step_count + 1,
+            }
         write_map = {
-            IntentLabel.REFUND: "create_refund_request",
             IntentLabel.SALES_LEAD: "upsert_sales_lead",
         }
         for label, name in write_map.items():
@@ -433,7 +514,21 @@ class AgentGraph:
                 parts.append(order)
         if state.status == "clarification_required":
             address_missing = state.escalation_reason == "missing_or_ambiguous_address"
-            if locale == "fr":
+            refund_missing = (state.escalation_reason or "").startswith("missing_")
+            if refund_missing:
+                missing = (
+                    (state.escalation_reason or "missing_information")
+                    .removeprefix("missing_")
+                    .replace("_", ", ")
+                )
+                parts.append(
+                    f"Veuillez préciser : {missing}. Utilisez les libellés motif, "
+                    "article/SKU, quantité, montant et devise."
+                    if locale == "fr"
+                    else f"Please provide: {missing}. Use the labels reason, item/SKU, "
+                    "quantity, amount, and currency."
+                )
+            elif locale == "fr":
                 parts.append(
                     "Veuillez fournir le destinataire, l’adresse (ligne 1), la ville, "
                     "la région/province, le code postal et le code pays ISO à deux lettres."
@@ -446,6 +541,55 @@ class AgentGraph:
                     "postal code, and a two-letter ISO country code."
                     if address_missing
                     else "Please provide one public order number."
+                )
+        refund = next(
+            (item for item in state.sanitized_results if item.tool == "refund_eligibility"), None
+        )
+        if refund is not None:
+            for ref in state.citations:
+                valid = await validate_citation(
+                    self.context.session,
+                    self.context.organization_id,
+                    Citation(
+                        record_id=UUID(ref.receipt_id),
+                        document_id=UUID(ref.document_id),
+                        version_id=UUID(ref.version_id),
+                        chunk_id=UUID(ref.chunk_id),
+                        source_title=ref.title,
+                        language=ref.language,
+                        section=ref.section,
+                        page=ref.page,
+                        snippet=ref.snippet,
+                    ),
+                )
+                if valid:
+                    validated_refs.append(ref)
+            if not validated_refs:
+                return await self._safe_failure(state, locale, "refund_citation_invalid")
+            data = refund.data
+            outcome = str(data.get("outcome"))
+            raw_reasons = data.get("reason_codes", [])
+            reason_values = raw_reasons if isinstance(raw_reasons, list) else []
+            reasons = ", ".join(str(value) for value in reason_values)
+            citation = validated_refs[0]
+            marker = f" [{citation.receipt_id}]" if citation else ""
+            if locale == "fr":
+                wording = {
+                    "ineligible": "La demande de remboursement n’est pas admissible",
+                    "manual_review_required": "Une vérification manuelle est nécessaire",
+                }.get(outcome, "La demande est admissible")
+                parts.append(
+                    f"## Admissibilité au remboursement\n\n{wording} ({reasons}). "
+                    f"Politique {data.get('policy_version')}.{marker}"
+                )
+            else:
+                wording = {
+                    "ineligible": "The refund request is ineligible",
+                    "manual_review_required": "Manual review is required",
+                }.get(outcome, "The request is eligible")
+                parts.append(
+                    f"## Refund eligibility\n\n{wording} ({reasons}). "
+                    f"Policy {data.get('policy_version')}.{marker}"
                 )
         answer = "\n\n".join(parts) or (
             "Je ne peux pas vérifier suffisamment d’informations pour répondre."

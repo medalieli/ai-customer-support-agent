@@ -346,6 +346,48 @@ class PendingAction(Base, TimestampMixin):
     failure_code: Mapped[str | None] = mapped_column(String(80))
 
 
+class RefundDecisionRecord(Base):
+    """Immutable inputs/result for a deterministic refund evaluation."""
+
+    __tablename__ = "refund_decisions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "conversation_id"],
+            ["conversations.organization_id", "conversations.id"],
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "customer_id"], ["customers.organization_id", "customers.id"]
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "policy_document_id"],
+            ["knowledge_documents.organization_id", "knowledge_documents.id"],
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "policy_version_id"],
+            ["document_versions.organization_id", "document_versions.id"],
+        ),
+        UniqueConstraint("organization_id", "id"),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
+    customer_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    order_ref: Mapped[str] = mapped_column(String(160))
+    order_number: Mapped[str] = mapped_column(String(40))
+    order_version: Mapped[str] = mapped_column(String(80))
+    policy_document_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    policy_version_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    policy_version: Mapped[str | None] = mapped_column(String(80))
+    policy_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    ruleset_version: Mapped[str] = mapped_column(String(40))
+    outcome: Mapped[str] = mapped_column(String(40))
+    reason_codes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    facts_hash: Mapped[str] = mapped_column(String(64))
+    citation_receipt_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    state: Mapped[str] = mapped_column(String(40), default="evaluated")
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class SupportTicket(Base, TimestampMixin):
     __tablename__ = "support_tickets"
     __table_args__ = (

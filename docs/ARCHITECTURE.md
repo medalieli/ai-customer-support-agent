@@ -106,3 +106,14 @@ Default per-turn budget: at most 8 tool executions, 2 guarded-write proposals, a
 Structured JSON logs, OpenTelemetry traces and metrics carry pseudonymous IDs and outcome/reason codes, never raw prompts, secrets, tokens, full addresses, email, or provider payloads. Metrics cover latency, tool/error/escalation rates, retrieval/citation quality, confirmation outcomes, queue lag, webhook duplicates, and policy decisions. Evaluation hooks store dataset/scenario IDs and structured outputs for offline scoring with redacted samples.
 
 Separate web, API and worker processes use least-privilege service identities. Provider secrets come from a secret manager/environment injection, are never exposed to browsers/models/logs, and are independently scoped/rotated. Production-like environments use TLS, encrypted storage/backups and network egress allowlists.
+
+## M9 refund boundary
+
+M9 adds policy-grounded refund requests. M4 retrieves active English or French policy evidence
+and revalidates citation receipts; executable `refund-v1` rules must match the active policy
+checksum. The deterministic service alone decides eligibility. Eligible mock requests use an
+encrypted, expiring, single-use confirmation and optimistic provider version. Unknown timeout
+outcomes reconcile by live read with the stable action idempotency key. Shopify always returns
+`human_approval_required` and performs no mutation. Manual-review records are durable but do not
+create support tickets. CRM writes, ticket creation, staff takeover, webhooks, money movement,
+live Shopify refund execution, and the final frontend remain deferred.

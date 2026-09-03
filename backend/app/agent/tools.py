@@ -91,6 +91,7 @@ class ToolContext:
     run_id: UUID | None = None
     request_message: str | None = None
     address_proposal: object | None = None
+    refund_proposal: object | None = None
 
     def provider_context(self) -> ProviderContext:
         return ProviderContext(

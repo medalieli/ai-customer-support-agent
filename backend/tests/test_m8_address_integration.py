@@ -2,10 +2,11 @@ import asyncio
 import os
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import SecretStr
 from sqlalchemy import select
@@ -166,7 +167,7 @@ async def _propose(client: AsyncClient, conversation_id: UUID, message: str) -> 
         headers={"Idempotency-Key": f"proposal-{uuid4()}"},
     )
     assert response.status_code == 202
-    return response.json()
+    return cast(dict[str, object], response.json())
 
 
 @pytest.mark.asyncio
@@ -474,7 +475,7 @@ async def test_concurrent_confirmations_have_one_logical_effect(
         "decision": "approve",
     }
 
-    async def approve() -> object:
+    async def approve() -> Response:
         return await client.post(
             f"/api/v1/agent/threads/{conversation}/resume",
             json=body,
