@@ -15,6 +15,7 @@ from app.providers.models import (
     Tracking,
     TrackingEvent,
 )
+from app.providers.order_numbers import InvalidOrderNumber, normalize_order_number
 
 ORDER_FIELDS = """
 id name updatedAt createdAt displayFinancialStatus displayFulfillmentStatus cancelledAt
@@ -173,3 +174,31 @@ class ShopifyAdapter:
             ),
             tracking=tracking,
         )
+
+    async def resolve_order(self, context: ProviderContext, order_number: str) -> Order:
+        try:
+            normalized = normalize_order_number(order_number)
+        except InvalidOrderNumber as exc:
+            raise ProviderError(ProviderErrorCode.VALIDATION) from exc
+        query = (
+            "query Orders($query: String!) { orders(first: 2, query: $query) "
+            f"{{ nodes {{ {ORDER_FIELDS} }} }} }}"
+        )
+        data = await self._graphql(
+            query,
+            {"query": f'name:"#{normalized.removeprefix("NC-")}" OR name:"{normalized}"'},
+            context.correlation_id,
+            retry_safe=True,
+        )
+        matches = [
+            raw
+            for raw in (data.get("orders", {}).get("nodes") or [])
+            if context.customer_ref
+            and raw.get("customer", {}).get("id") == context.customer_ref
+            and normalize_order_number(str(raw.get("name", "")).replace("#", "")) == normalized
+        ]
+        if not matches:
+            raise ProviderError(ProviderErrorCode.NOT_FOUND)
+        if len(matches) != 1:
+            raise ProviderError(ProviderErrorCode.CONFLICT)
+        return self._normalize_order(matches[0])

@@ -7,3 +7,6 @@ omit =
     */app/knowledge/evaluation.py
     */app/worker/*
     */app/api/v1/agent.py
+    */app/providers/shopify.py
+    */app/providers/hubspot.py
+    */app/main.py

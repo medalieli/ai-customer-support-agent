@@ -1,11 +1,13 @@
 import re
 import sys
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal, cast
+from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from app.agent.answers import AnswerModel
 from app.agent.state import (
     AgentState,
     IntentLabel,
@@ -17,6 +19,8 @@ from app.agent.state import (
 from app.agent.tools import ToolContext, ToolGateway
 from app.agent.triage import TriageModel, deterministic_risk, validate_triage
 from app.core.config import Settings
+from app.knowledge.retrieval import Citation, validate_citation
+from app.providers.order_numbers import extract_order_number
 
 EventEmitter = Callable[[str, dict[str, object]], Awaitable[None]]
 
@@ -25,12 +29,52 @@ def _latest_user(state: AgentState) -> str:
     return next(item.content for item in reversed(state.messages) if item.role == "user")
 
 
-def _order_ref(message: str) -> str | None:
-    match = re.search(r"\b(?:(?:NC|OO)-\d{4,10}|ord-[a-z0-9-]+)\b", message, flags=re.IGNORECASE)
-    if match is None:
-        return None
-    value = match.group(0)
-    return value.lower() if value.casefold().startswith("ord-") else value.upper()
+def _language(message: str, fallback: str) -> str:
+    lowered = message.casefold()
+    french = {
+        "où",
+        "quel",
+        "quelle",
+        "commande",
+        "livraison",
+        "retour",
+        "politique",
+        "puis-je",
+        "remboursement",
+    }
+    if any(token in lowered for token in french):
+        return "fr"
+    return fallback if fallback in {"en", "fr"} else "en"
+
+
+def _knowledge_query(message: str) -> str:
+    parts = re.split(r"\s+(?:and|et)\s+|[,;]", message, flags=re.IGNORECASE)
+    knowledge_parts = [
+        part.strip()
+        for part in parts
+        if part.strip()
+        and not (
+            extract_order_number(part)
+            or re.search(r"\b(?:order|commande|track|suivi)\b", part, re.IGNORECASE)
+        )
+    ]
+    return " ".join(knowledge_parts) or message
+
+
+def _persistable_results(state: AgentState, receipt_ids: list[str]) -> list[SanitizedResult]:
+    values: list[SanitizedResult] = []
+    for result in state.sanitized_results:
+        if result.tool == "search_knowledge_base" and result.status == "completed":
+            values.append(
+                SanitizedResult(
+                    tool=result.tool,
+                    status=result.status,
+                    data={"validated_receipt_ids": receipt_ids},
+                )
+            )
+        else:
+            values.append(result)
+    return values
 
 
 class AgentGraph:
@@ -38,6 +82,7 @@ class AgentGraph:
         self,
         settings: Settings,
         triage_model: TriageModel,
+        answer_model: AnswerModel,
         gateway: ToolGateway,
         context: ToolContext,
         emit: EventEmitter,
@@ -45,6 +90,7 @@ class AgentGraph:
     ) -> None:
         self.settings = settings
         self.triage_model = triage_model
+        self.answer_model = answer_model
         self.gateway = gateway
         self.context = context
         self.emit = emit
@@ -111,28 +157,26 @@ class AgentGraph:
                 "escalation_reason": state.escalation_reason or "maximum_steps",
             }
         message = _latest_user(state)
+        locale = _language(message, self.context.locale)
         labels = {item.label for item in state.intents}
         selected: list[SelectedTool] = []
         if IntentLabel.KNOWLEDGE in labels:
             selected.append(
                 SelectedTool(
                     name="search_knowledge_base",
-                    arguments={"query": message, "locale": "en", "limit": 5},
+                    arguments={"query": _knowledge_query(message), "locale": locale, "limit": 5},
                 )
             )
-        order_ref = _order_ref(message)
+        order_ref = extract_order_number(message)
         if IntentLabel.ORDER_STATUS in labels:
             if order_ref is None:
                 return {
-                    "status": "escalation_required",
-                    "escalation_reason": "missing_order_reference",
+                    "status": "clarification_required",
+                    "escalation_reason": "missing_or_ambiguous_order_number",
                     "step_count": state.step_count + 1,
                 }
-            selected.extend(
-                [
-                    SelectedTool(name="get_order", arguments={"order_ref": order_ref}),
-                    SelectedTool(name="get_tracking", arguments={"order_ref": order_ref}),
-                ]
+            selected.append(
+                SelectedTool(name="get_order_status", arguments={"order_number": order_ref})
             )
         write_map = {
             IntentLabel.ACCOUNT_CHANGE: "propose_shipping_address_change",
@@ -156,6 +200,8 @@ class AgentGraph:
     def _after_plan(self, state: AgentState) -> str:
         if state.status == "escalation_required":
             return "interrupt"
+        if state.status == "clarification_required":
+            return "compose"
         return "tools" if state.selected_tools else "compose"
 
     async def _execute_tools(self, state: AgentState) -> dict[str, object]:
@@ -233,30 +279,141 @@ class AgentGraph:
 
     async def _compose(self, state: AgentState) -> dict[str, object]:
         parts: list[str] = []
+        locale = cast(Literal["en", "fr"], _language(_latest_user(state), self.context.locale))
+        validated_refs = []
+        knowledge = next(
+            (
+                item
+                for item in state.sanitized_results
+                if item.tool == "search_knowledge_base" and item.status == "completed"
+            ),
+            None,
+        )
+        if knowledge is not None:
+            passages = knowledge.data.get("passages", [])
+            if not isinstance(passages, list) or not passages or not state.citations:
+                return await self._safe_failure(state, locale, "insufficient_evidence")
+            try:
+                grounded = await self.answer_model.answer(
+                    _knowledge_query(_latest_user(state)),
+                    locale,
+                    [dict(item) for item in passages if isinstance(item, dict)],
+                )
+                by_id = {item.receipt_id: item for item in state.citations}
+                if (
+                    not grounded.supported
+                    or not grounded.citation_receipt_ids
+                    or any(receipt_id not in by_id for receipt_id in grounded.citation_receipt_ids)
+                ):
+                    raise ValueError("citation_not_supplied")
+                for receipt_id in dict.fromkeys(grounded.citation_receipt_ids):
+                    ref = by_id[receipt_id]
+                    valid = await validate_citation(
+                        self.context.session,
+                        self.context.organization_id,
+                        Citation(
+                            record_id=UUID(ref.receipt_id),
+                            document_id=UUID(ref.document_id),
+                            version_id=UUID(ref.version_id),
+                            chunk_id=UUID(ref.chunk_id),
+                            source_title=ref.title,
+                            language=ref.language,
+                            section=ref.section,
+                            page=ref.page,
+                            snippet=ref.snippet,
+                        ),
+                    )
+                    if not valid:
+                        raise ValueError("citation_invalid")
+                    validated_refs.append(ref)
+                forbidden = (
+                    "i updated",
+                    "i refunded",
+                    "crm record created",
+                    "j'ai modifié",
+                    "j'ai remboursé",
+                )
+                if any(term in grounded.answer.casefold() for term in forbidden):
+                    raise ValueError("action_claim")
+                heading = (
+                    "Policy information" if locale == "en" else "Informations sur la politique"
+                )
+                parts.append(f"## {heading}\n\n{grounded.answer}")
+            except Exception:
+                return await self._safe_failure(state, locale, "grounding_failed")
         for result in state.sanitized_results:
-            if result.tool == "search_knowledge_base" and result.status == "completed":
-                passages = result.data.get("passages", [])
-                if isinstance(passages, list) and passages:
-                    parts.append(str(passages[0]))
-            elif result.tool == "get_order" and result.status == "completed":
-                order_ref = result.data.get("order_ref")
-                status = result.data.get("status")
-                fulfillment = result.data.get("fulfillment_status")
-                parts.append(f"Order {order_ref} is {status} ({fulfillment}).")
-            elif result.tool == "get_tracking" and result.status == "completed":
-                tracking_status = result.data.get("status")
-                estimate = result.data.get("estimated_delivery_at") or "not available"
-                parts.append(f"Tracking status: {tracking_status}; estimated delivery: {estimate}.")
-        answer = "\n\n".join(parts) or "I could not verify enough information to answer safely."
+            if result.tool == "get_order_status" and result.status == "completed":
+                data = result.data
+                retrieved = data.get("retrieved_at")
+                number = data.get("order_number")
+                status = data.get("status")
+                fulfillment = data.get("fulfillment_status")
+                tracking = data.get("tracking_number") or data.get("tracking_url")
+                if locale == "fr":
+                    order = (
+                        "## Statut de la commande\n\nDonnées commerciales en direct "
+                        f"récupérées à {retrieved}. Commande {number} : statut {status}, "
+                        f"traitement {fulfillment}."
+                    )
+                    if data.get("carrier"):
+                        order += f" Transporteur : {data.get('carrier')}. Suivi : {tracking}."
+                    if data.get("estimated_delivery_at"):
+                        order += f" Livraison estimée : {data.get('estimated_delivery_at')}."
+                else:
+                    order = (
+                        f"## Order status\n\nLive commerce data retrieved at {retrieved}. "
+                        f"Order {number}: status {status}, fulfillment {fulfillment}."
+                    )
+                    if data.get("carrier"):
+                        order += f" Carrier: {data.get('carrier')}. Tracking: {tracking}."
+                    if data.get("estimated_delivery_at"):
+                        order += f" Estimated delivery: {data.get('estimated_delivery_at')}."
+                parts.append(order)
+        if state.status == "clarification_required":
+            parts.append(
+                "Veuillez fournir un seul numéro de commande public."
+                if locale == "fr"
+                else "Please provide one public order number."
+            )
+        answer = "\n\n".join(parts) or (
+            "Je ne peux pas vérifier suffisamment d’informations pour répondre."
+            if locale == "fr"
+            else "I could not verify enough information to answer safely."
+        )
         await self.emit(
             "response_completed",
             {
                 "message": answer,
-                "citations": [item.model_dump(mode="json") for item in state.citations],
+                "citations": [item.model_dump(mode="json") for item in validated_refs],
             },
         )
         return {
             "messages": [*state.messages, VisibleMessage(role="assistant", content=answer)],
-            "status": "completed",
+            "citations": validated_refs,
+            "sanitized_results": _persistable_results(
+                state, [item.receipt_id for item in validated_refs]
+            ),
+            "status": "completed"
+            if state.status != "clarification_required"
+            else "clarification_required",
+            "step_count": state.step_count + 1,
+        }
+
+    async def _safe_failure(self, state: AgentState, locale: str, reason: str) -> dict[str, object]:
+        answer = (
+            "Je n’ai pas assez de preuves validées pour répondre de façon fiable. "
+            "Une assistance humaine est nécessaire."
+            if locale == "fr"
+            else "I do not have enough validated evidence to answer reliably. "
+            "Human help is required."
+        )
+        await self.emit("escalation_required", {"reason": reason})
+        await self.emit("response_completed", {"message": answer, "citations": []})
+        return {
+            "messages": [*state.messages, VisibleMessage(role="assistant", content=answer)],
+            "citations": [],
+            "sanitized_results": _persistable_results(state, []),
+            "status": "escalation_required",
+            "escalation_reason": reason,
             "step_count": state.step_count + 1,
         }

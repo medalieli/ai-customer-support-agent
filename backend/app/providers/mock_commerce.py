@@ -11,6 +11,7 @@ from app.providers.models import (
     RefundRequest,
     Tracking,
 )
+from app.providers.order_numbers import InvalidOrderNumber, normalize_order_number
 
 
 class MockCommerceAdapter:
@@ -76,3 +77,33 @@ class MockCommerceAdapter:
         data["version"] = str(data["version"])
         data["provider_status"] = data["status"]
         return Order.model_validate(data)
+
+    async def resolve_order(self, context: ProviderContext, order_number: str) -> Order:
+        try:
+            wanted = normalize_order_number(order_number)
+        except InvalidOrderNumber as exc:
+            raise ProviderError(ProviderErrorCode.VALIDATION) from exc
+        matches: list[str] = []
+        cursor: str | None = None
+        while True:
+            response = await self.http.request(
+                "GET",
+                "/v1/orders",
+                headers=self._headers(context),
+                params={"limit": 50, **({"cursor": cursor} if cursor else {})},
+            )
+            payload = response.json()
+            for item in payload.get("items", []):
+                try:
+                    if normalize_order_number(str(item["order_number"])) == wanted:
+                        matches.append(str(item["external_ref"]))
+                except (InvalidOrderNumber, KeyError):
+                    continue
+            cursor = payload.get("next_cursor")
+            if not cursor:
+                break
+        if not matches:
+            raise ProviderError(ProviderErrorCode.NOT_FOUND)
+        if len(matches) != 1:
+            raise ProviderError(ProviderErrorCode.CONFLICT)
+        return await self.get_order(context, matches[0])

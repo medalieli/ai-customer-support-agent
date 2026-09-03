@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.state import CitationRef, RiskLevel, SanitizedResult
 from app.core.config import Settings
 from app.knowledge.retrieval import retrieve_passages
-from app.providers.models import ProviderContext
+from app.providers.errors import ProviderError
+from app.providers.models import ProviderContext, ProviderErrorCode
 from app.providers.ports import CommerceProviderV1, CrmProviderV1
 
 
@@ -33,6 +34,11 @@ class KnowledgeInput(BaseModel):
 class OrderInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     order_ref: str = Field(min_length=2, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class OrderStatusInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    order_number: str = Field(min_length=3, max_length=40, pattern=r"^[A-Z0-9-]+$")
 
 
 class EmptyInput(BaseModel):
@@ -78,6 +84,7 @@ class ToolContext:
     commerce: CommerceProviderV1
     crm: CrmProviderV1
     permissions: frozenset[Permission]
+    locale: str = "en"
 
     def provider_context(self) -> ProviderContext:
         return ProviderContext(
@@ -103,11 +110,57 @@ async def _knowledge(value: BaseModel, context: ToolContext) -> ToolOutput:
             receipt_id=str(item.citation.record_id),
             title=item.citation.source_title,
             snippet=item.citation.snippet[:500],
+            document_id=str(item.citation.document_id),
+            version_id=str(item.citation.version_id),
+            chunk_id=str(item.citation.chunk_id),
+            language=item.citation.language,
+            section=item.citation.section,
+            page=item.citation.page,
         )
         for item in passages
     ]
     return ToolOutput(
-        data={"passages": [item.text[:1000] for item in passages]}, citations=citations
+        data={
+            "passages": [
+                {"receipt_id": str(item.citation.record_id), "text": item.text[:1600]}
+                for item in passages
+            ]
+        },
+        citations=citations,
+    )
+
+
+async def _order_status(value: BaseModel, context: ToolContext) -> ToolOutput:
+    from datetime import datetime, timezone
+
+    request = OrderStatusInput.model_validate(value)
+    order = await context.commerce.resolve_order(context.provider_context(), request.order_number)
+    tracking = order.tracking
+    events = []
+    if tracking:
+        events = [
+            {
+                "status": event.status,
+                "occurred_at": event.occurred_at.isoformat(),
+                "location": event.location,
+            }
+            for event in tracking.events[-5:]
+        ]
+    return ToolOutput(
+        data={
+            "order_number": order.order_number,
+            "status": order.status,
+            "fulfillment_status": order.fulfillment_status,
+            "carrier": tracking.carrier if tracking else None,
+            "tracking_number": tracking.tracking_number if tracking else None,
+            "tracking_url": tracking.tracking_url if tracking else None,
+            "estimated_delivery_at": tracking.estimated_delivery_at.isoformat()
+            if tracking and tracking.estimated_delivery_at
+            else None,
+            "delivery_events": events,
+            "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            "source": "live_commerce",
+        }
     )
 
 
@@ -145,12 +198,23 @@ async def _tracking(value: BaseModel, context: ToolContext) -> ToolOutput:
 def build_registry() -> dict[str, ToolDefinition[Any]]:
     tools: list[ToolDefinition[Any]] = [
         ToolDefinition(
+            "get_order_status",
+            OrderStatusInput,
+            ToolOutput,
+            RiskLevel.READ_ONLY,
+            Permission.CUSTOMER_READ,
+            8,
+            False,
+            False,
+            _order_status,
+        ),
+        ToolDefinition(
             "search_knowledge_base",
             KnowledgeInput,
             ToolOutput,
             RiskLevel.READ_ONLY,
             Permission.PUBLIC_KNOWLEDGE,
-            8,
+            30,
             False,
             False,
             _knowledge,
@@ -290,5 +354,16 @@ class ToolGateway:
             ), checked.citations
         except TimeoutError:
             return SanitizedResult(tool=name, status="failed", error_code="provider_timeout"), []
+        except ProviderError as exc:
+            codes = {
+                ProviderErrorCode.NOT_FOUND: "order_not_found",
+                ProviderErrorCode.NOT_AUTHORIZED: "order_not_found",
+                ProviderErrorCode.CONFLICT: "ambiguous_order_number",
+                ProviderErrorCode.VALIDATION: "invalid_order_number",
+                ProviderErrorCode.TIMEOUT: "provider_timeout",
+            }
+            return SanitizedResult(
+                tool=name, status="failed", error_code=codes.get(exc.code, "provider_unavailable")
+            ), []
         except Exception:
             return SanitizedResult(tool=name, status="failed", error_code="tool_unavailable"), []

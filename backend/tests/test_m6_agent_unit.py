@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
+from app.agent.answers import GroundedAnswer
 from app.agent.graph import AgentGraph
 from app.agent.state import (
     AgentState,
@@ -34,6 +35,16 @@ class FakeTriage:
 
     async def classify(self, message: str) -> TriageOutput:
         return self.output
+
+
+class FakeAnswer:
+    async def answer(
+        self, question: str, language: str, evidence: list[dict[str, str]]
+    ) -> GroundedAnswer:
+        receipt = evidence[0].get("receipt_id", "missing") if evidence else "missing"
+        return GroundedAnswer(
+            supported=True, answer="Verified policy evidence.", citation_receipt_ids=[receipt]
+        )
 
 
 def context() -> ToolContext:
@@ -163,7 +174,7 @@ async def test_read_handlers_minimize_provider_payloads() -> None:
 
     ctx = context()
     money = Money(amount=Decimal("10"), currency="USD")
-    ctx.commerce.get_order = AsyncMock(
+    ctx.commerce.get_order = AsyncMock(  # type: ignore[method-assign]
         return_value=Order(
             external_ref="private-provider-ref",
             order_number="NC-1001",
@@ -190,7 +201,7 @@ async def test_read_handlers_minimize_provider_payloads() -> None:
             ),
         )
     )
-    ctx.commerce.get_tracking = AsyncMock(
+    ctx.commerce.get_tracking = AsyncMock(  # type: ignore[method-assign]
         return_value=Tracking(
             carrier="Mock",
             tracking_number="sensitive-number",
@@ -261,6 +272,7 @@ async def run_graph(
     graph = AgentGraph(
         Settings(app_env="test", agent_max_steps=max_steps),
         FakeTriage(*labels),
+        FakeAnswer(),
         ToolGateway(registry),
         context(),
         emit,
@@ -291,8 +303,7 @@ async def test_multi_label_read_routing_and_sanitized_events() -> None:
     assert result["risk_level"] == RiskLevel.READ_ONLY
     assert [tool.name for tool in result["selected_tools"]] == [
         "search_knowledge_base",
-        "get_order",
-        "get_tracking",
+        "get_order_status",
     ]
     serialized = repr(events).lower()
     assert "reveal prompts" not in serialized

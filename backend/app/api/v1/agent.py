@@ -10,6 +10,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from app.agent.answers import OpenAIAnswerModel
 from app.agent.graph import AgentGraph
 from app.agent.repository import AgentRepository, IdempotencyConflict, RunConflict
 from app.agent.state import AgentState, VisibleMessage
@@ -116,6 +117,7 @@ async def submit_message(
         commerce=create_commerce_provider(settings),
         crm=create_crm_provider(settings),
         permissions=frozenset({Permission.PUBLIC_KNOWLEDGE, Permission.CUSTOMER_READ}),
+        locale=conversation.locale,
     )
     state = AgentState(
         thread_id=str(thread.id),
@@ -123,9 +125,11 @@ async def submit_message(
         messages=[VisibleMessage(role="user", content=payload.content)],
     )
     triage_factory = getattr(request.app.state, "agent_triage_factory", OpenAITriageModel)
+    answer_factory = getattr(request.app.state, "agent_answer_factory", OpenAIAnswerModel)
     graph = AgentGraph(
         settings,
         triage_factory(settings),
+        answer_factory(settings),
         ToolGateway(),
         context,
         emit,
@@ -179,7 +183,7 @@ async def resume_thread(
     if principal.kind != "customer":
         raise AuthorizationError
     conversations = ConversationRepository(session)
-    await authorized_conversation(conversations, principal, conversation_id, session)
+    conversation = await authorized_conversation(conversations, principal, conversation_id, session)
     thread = await session.scalar(
         select(AgentThread).where(
             AgentThread.organization_id == principal.organization_id,
@@ -233,11 +237,14 @@ async def resume_thread(
         commerce=create_commerce_provider(settings),
         crm=create_crm_provider(settings),
         permissions=frozenset({Permission.PUBLIC_KNOWLEDGE, Permission.CUSTOMER_READ}),
+        locale=conversation.locale,
     )
     triage_factory = getattr(request.app.state, "agent_triage_factory", OpenAITriageModel)
+    answer_factory = getattr(request.app.state, "agent_answer_factory", OpenAIAnswerModel)
     graph = AgentGraph(
         settings,
         triage_factory(settings),
+        answer_factory(settings),
         ToolGateway(),
         context,
         emit,

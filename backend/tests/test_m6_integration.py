@@ -9,6 +9,7 @@ from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.agent.answers import GroundedAnswer
 from app.agent.repository import AgentRepository, RunConflict
 from app.agent.state import IntentLabel, IntentScore
 from app.agent.triage import TriageOutput
@@ -32,6 +33,16 @@ class FakeTriage:
         return TriageOutput(intents=[IntentScore(label=IntentLabel.HUMAN_HELP, confidence=0.99)])
 
 
+class FakeAnswer:
+    def __init__(self, settings: Settings) -> None:
+        del settings
+
+    async def answer(
+        self, question: str, language: str, evidence: list[dict[str, str]]
+    ) -> GroundedAnswer:
+        return GroundedAnswer(supported=True, answer="safe", citation_receipt_ids=["unused"])
+
+
 @pytest.fixture
 async def agent_client() -> AsyncIterator[tuple[AsyncClient, async_sessionmaker[AsyncSession]]]:
     settings = Settings(
@@ -50,6 +61,7 @@ async def agent_client() -> AsyncIterator[tuple[AsyncClient, async_sessionmaker[
     app = create_app(settings)
     app.state.agent_checkpointer = InMemorySaver()
     app.state.agent_triage_factory = FakeTriage
+    app.state.agent_answer_factory = FakeAnswer
 
     async def override_session() -> AsyncIterator[AsyncSession]:
         async with factory() as session:
@@ -147,14 +159,14 @@ async def test_repository_persistence_concurrency_and_rls(
             await repo.begin_run(thread, f"concurrent-{uuid4()}", "second run")
         await session.rollback()
         await set_tenant_scope(session, org)
-        run = await session.get(AgentRun, run_id)
-        assert run
-        run.status = "completed"
+        loaded_run = await session.get(AgentRun, run_id)
+        assert loaded_run
+        loaded_run.status = "completed"
         await session.commit()
 
     async with factory() as session:
         await set_tenant_scope(session, org)
-        persisted = await session.scalar(select(AgentRun).where(AgentRun.id == run.id))
+        persisted = await session.scalar(select(AgentRun).where(AgentRun.id == run_id))
         assert persisted and persisted.state_json == {}
         raw = repr(persisted.state_json).lower()
         assert "chain_of_thought" not in raw and "secret" not in raw

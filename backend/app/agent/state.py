@@ -52,6 +52,12 @@ class CitationRef(BaseModel):
     receipt_id: str
     title: str
     snippet: str
+    document_id: str
+    version_id: str
+    chunk_id: str
+    language: str
+    section: str | None = None
+    page: int | None = None
 
 
 class AgentState(BaseModel):
@@ -69,6 +75,11 @@ class AgentState(BaseModel):
     citations: list[CitationRef] = Field(default_factory=list)
     step_count: int = Field(default=0, ge=0)
     status: Literal[
-        "running", "completed", "confirmation_required", "escalation_required", "failed"
+        "running",
+        "completed",
+        "clarification_required",
+        "confirmation_required",
+        "escalation_required",
+        "failed",
     ] = "running"
     escalation_reason: str | None = None
