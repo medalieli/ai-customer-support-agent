@@ -1,3 +1,4 @@
+import hashlib
 import json
 from typing import Any, cast
 from uuid import UUID
@@ -10,6 +11,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from app.agent.address_parser import looks_like_address_change
 from app.agent.answers import OpenAIAnswerModel
 from app.agent.graph import AgentGraph
 from app.agent.repository import AgentRepository, IdempotencyConflict, RunConflict
@@ -18,9 +20,10 @@ from app.agent.tools import Permission, ToolContext, ToolGateway
 from app.agent.triage import OpenAITriageModel
 from app.api.dependencies import CurrentPrincipal, DatabaseSession, RequestSettings
 from app.api.v1.conversations import authorized_conversation
-from app.domain.models import AgentRun, AgentThread, Customer, MessageRole
+from app.domain.models import AgentRun, AgentThread, Customer, MessageRole, PendingAction
 from app.providers.factory import create_commerce_provider, create_crm_provider
 from app.repositories.conversations import ConversationRepository
+from app.services.address_actions import AddressActionError, AddressActionService, AddressProposal
 from app.services.auth import AuthorizationError, ResourceNotFoundError
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -35,11 +38,31 @@ class AgentRunResponse(BaseModel):
     status: str
     duplicate: bool
     checkpoint_version: int
+    confirmation: dict[str, object] | None = None
 
 
 class ResumeRequest(BaseModel):
     checkpoint_version: int = Field(ge=0)
     value: dict[str, object] = Field(default_factory=dict)
+    action_id: UUID | None = None
+    confirmation_token: str | None = Field(default=None, min_length=32, max_length=300)
+    decision: str | None = Field(default=None, min_length=2, max_length=40)
+
+
+def _confirmation(proposal: object | None) -> dict[str, object] | None:
+    if not isinstance(proposal, AddressProposal):
+        return None
+    return {
+        "action_id": str(proposal.action_id),
+        "action_hash": proposal.action_hash,
+        "confirmation_token": proposal.confirmation_token,
+        "expires_at": proposal.expires_at.isoformat(),
+        "order_number": proposal.order_number,
+        "masked_current_address": proposal.masked_current_address,
+        "proposed_address": proposal.proposed_address.model_dump(mode="json"),
+        "consequences": proposal.consequences,
+        "confirmation_required": True,
+    }
 
 
 async def _authorized_run(
@@ -86,10 +109,14 @@ async def submit_message(
             duplicate=True,
             checkpoint_version=thread.checkpoint_version,
         )
+    sensitive_address_turn = looks_like_address_change(payload.content)
+    stored_content = (
+        "[shipping address change request redacted]" if sensitive_address_turn else payload.content
+    )
     await conversations.add_message(
         conversation,
         MessageRole.CUSTOMER,
-        payload.content,
+        stored_content,
         conversation.locale,
         sender_customer_id=principal.subject_id,
     )
@@ -118,11 +145,16 @@ async def submit_message(
         crm=create_crm_provider(settings),
         permissions=frozenset({Permission.PUBLIC_KNOWLEDGE, Permission.CUSTOMER_READ}),
         locale=conversation.locale,
+        customer_id=principal.subject_id,
+        session_id=principal.session_id,
+        conversation_id=conversation_id,
+        run_id=run.id,
+        request_message=payload.content,
     )
     state = AgentState(
         thread_id=str(thread.id),
         run_id=str(run.id),
-        messages=[VisibleMessage(role="user", content=payload.content)],
+        messages=[VisibleMessage(role="user", content=stored_content)],
     )
     triage_factory = getattr(request.app.state, "agent_triage_factory", OpenAITriageModel)
     answer_factory = getattr(request.app.state, "agent_answer_factory", OpenAIAnswerModel)
@@ -167,6 +199,7 @@ async def submit_message(
         status=run.status,
         duplicate=False,
         checkpoint_version=thread.checkpoint_version,
+        confirmation=_confirmation(context.address_proposal),
     )
 
 
@@ -190,6 +223,26 @@ async def resume_thread(
             AgentThread.conversation_id == conversation_id,
         )
     )
+    serialized = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    if thread is not None:
+        existing_resume = await session.scalar(
+            select(AgentRun).where(
+                AgentRun.organization_id == principal.organization_id,
+                AgentRun.thread_id == thread.id,
+                AgentRun.idempotency_key == idempotency_key,
+            )
+        )
+        if existing_resume is not None:
+            if existing_resume.request_hash != hashlib.sha256(serialized.encode()).hexdigest():
+                from fastapi import HTTPException
+
+                raise HTTPException(status_code=409, detail="resume_conflict")
+            return AgentRunResponse(
+                run_id=existing_resume.id,
+                status=existing_resume.status,
+                duplicate=True,
+                checkpoint_version=thread.checkpoint_version,
+            )
     if thread is None or thread.checkpoint_version != payload.checkpoint_version:
         from fastapi import HTTPException
 
@@ -199,7 +252,6 @@ async def resume_thread(
 
         raise HTTPException(status_code=409, detail="thread_not_interrupted")
     repo = AgentRepository(session)
-    serialized = json.dumps(payload.value, sort_keys=True, separators=(",", ":"))
     try:
         run, created = await repo.begin_run(thread, idempotency_key, serialized)
     except (RunConflict, IdempotencyConflict) as exc:
@@ -223,6 +275,66 @@ async def resume_thread(
         raise ResourceNotFoundError
     await session.commit()
 
+    pending = await session.scalar(
+        select(PendingAction).where(
+            PendingAction.organization_id == principal.organization_id,
+            PendingAction.conversation_id == conversation_id,
+            PendingAction.status == "PENDING",
+        )
+    )
+    if pending is not None:
+        action_id = payload.action_id
+        token = payload.confirmation_token
+        decision = payload.decision or str(payload.value.get("decision", ""))
+        if action_id is None or token is None or not decision:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=422, detail="explicit_confirmation_required")
+        try:
+            outcome = await AddressActionService(
+                session, settings, create_commerce_provider(settings)
+            ).decide(
+                organization_id=principal.organization_id,
+                customer_id=principal.subject_id,
+                customer_ref=customer.provider_customer_ref,
+                session_id=principal.session_id,
+                conversation_id=conversation_id,
+                action_id=action_id,
+                token=token,
+                decision=decision,
+                correlation_id=str(run.id),
+            )
+        except AddressActionError as exc:
+            from fastapi import HTTPException
+
+            run.status = "failed"
+            await repo.event(
+                run, "action_failed", {"status": "action_failed", "reason_code": exc.code}
+            )
+            await session.commit()
+            raise HTTPException(status_code=409, detail=exc.code) from exc
+        run.status = outcome.status
+        run.state_json = {
+            "pending_action_id": str(outcome.action_id),
+            "status": outcome.status,
+            "reason_code": outcome.reason_code,
+        }
+        thread.status = outcome.status
+        thread.interrupt_reason = None
+        thread.checkpoint_version += 1
+        await repo.event(
+            run,
+            outcome.status,
+            {"status": outcome.status, "reason_code": outcome.reason_code},
+        )
+        await session.commit()
+        return AgentRunResponse(
+            run_id=run.id,
+            status=outcome.status,
+            duplicate=False,
+            checkpoint_version=thread.checkpoint_version,
+        )
+
     async def emit(event_type: str, data: dict[str, object]) -> None:
         await repo.event(run, event_type, data)
         await session.commit()
@@ -238,6 +350,10 @@ async def resume_thread(
         crm=create_crm_provider(settings),
         permissions=frozenset({Permission.PUBLIC_KNOWLEDGE, Permission.CUSTOMER_READ}),
         locale=conversation.locale,
+        customer_id=principal.subject_id,
+        session_id=principal.session_id,
+        conversation_id=conversation_id,
+        run_id=run.id,
     )
     triage_factory = getattr(request.app.state, "agent_triage_factory", OpenAITriageModel)
     answer_factory = getattr(request.app.state, "agent_answer_factory", OpenAIAnswerModel)

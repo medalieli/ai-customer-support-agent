@@ -320,16 +320,30 @@ class PendingAction(Base, TimestampMixin):
         ForeignKeyConstraint(
             ["organization_id", "customer_id"], ["customers.organization_id", "customers.id"]
         ),
+        UniqueConstraint("organization_id", "id"),
+        UniqueConstraint("organization_id", "idempotency_key"),
     )
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
     customer_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
     action_type: Mapped[str] = mapped_column(String(80))
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
+    session_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    order_ref: Mapped[str] = mapped_column(String(160))
+    order_number: Mapped[str] = mapped_column(String(40))
+    order_version: Mapped[str] = mapped_column(String(80))
+    encrypted_payload: Mapped[bytes] = mapped_column(LargeBinary)
     payload_hash: Mapped[str] = mapped_column(String(64))
+    action_hash: Mapped[str] = mapped_column(String(64))
     token_hash: Mapped[bytes] = mapped_column(LargeBinary(32))
+    idempotency_key: Mapped[str] = mapped_column(String(128))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[RecordStatus] = mapped_column(Enum(RecordStatus, native_enum=False))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_version: Mapped[str | None] = mapped_column(String(80))
+    failure_code: Mapped[str | None] = mapped_column(String(80))
 
 
 class SupportTicket(Base, TimestampMixin):

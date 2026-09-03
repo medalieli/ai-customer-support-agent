@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     agent_model_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     agent_max_steps: int = Field(default=8, ge=1, le=20)
     agent_min_confidence: float = Field(default=0.65, ge=0, le=1)
+    action_secret: SecretStr = SecretStr("development-action-secret-change-me-32-bytes")
+    action_confirmation_ttl_seconds: int = Field(default=600, ge=30, le=3600)
     shopify_store_domain: str | None = None
     shopify_access_token: SecretStr | None = None
     hubspot_access_token: SecretStr | None = None
@@ -117,6 +119,8 @@ class Settings(BaseSettings):
             self.shopify_store_domain and self.shopify_access_token
         ):
             raise ValueError("Shopify mode requires its store domain and access token")
+        if len(self.action_secret.get_secret_value().encode()) < 32:
+            raise ValueError("Action secret must contain at least 32 bytes")
         if (
             self.commerce_provider == "mock"
             and len(self.mock_commerce_internal_api_key.get_secret_value()) < 16

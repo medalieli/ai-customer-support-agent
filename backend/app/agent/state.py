@@ -83,3 +83,5 @@ class AgentState(BaseModel):
         "failed",
     ] = "running"
     escalation_reason: str | None = None
+    pending_action_id: str | None = None
+    pending_action_hash: str | None = None

@@ -24,6 +24,12 @@ def extract_order_number(message: str) -> str | None:
         r"(?<![A-Za-z0-9])#?\s*(?:[A-Za-z]{2,8}[\s-]?\d{3,12}|\d{3,12})(?![A-Za-z0-9])",
         message,
     )
+    # Postal codes and street numbers can appear in address-change turns. When a
+    # single prefixed public order number is present, do not treat bare address
+    # digits as competing order identifiers.
+    prefixed = [candidate for candidate in candidates if re.search(r"[A-Za-z]", candidate)]
+    if len(prefixed) == 1:
+        candidates = prefixed
     normalized: set[str] = set()
     for candidate in candidates:
         try:

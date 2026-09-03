@@ -7,6 +7,7 @@ from uuid import UUID
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from app.agent.address_parser import extract_proposed_address
 from app.agent.answers import AnswerModel
 from app.agent.state import (
     AgentState,
@@ -21,6 +22,7 @@ from app.agent.triage import TriageModel, deterministic_risk, validate_triage
 from app.core.config import Settings
 from app.knowledge.retrieval import Citation, validate_citation
 from app.providers.order_numbers import extract_order_number
+from app.services.address_actions import AddressActionError, AddressActionService
 
 EventEmitter = Callable[[str, dict[str, object]], Awaitable[None]]
 
@@ -121,7 +123,9 @@ class AgentGraph:
         if self._bounded(state):
             return {"status": "escalation_required", "escalation_reason": "maximum_steps"}
         try:
-            raw = await self.triage_model.classify(_latest_user(state))
+            raw = await self.triage_model.classify(
+                self.context.request_message or _latest_user(state)
+            )
             result = validate_triage(raw, self.settings.agent_min_confidence)
         except Exception:
             await self.emit("escalation_required", {"reason": "triage_failed"})
@@ -156,7 +160,7 @@ class AgentGraph:
                 "status": "escalation_required",
                 "escalation_reason": state.escalation_reason or "maximum_steps",
             }
-        message = _latest_user(state)
+        message = self.context.request_message or _latest_user(state)
         locale = _language(message, self.context.locale)
         labels = {item.label for item in state.intents}
         selected: list[SelectedTool] = []
@@ -178,8 +182,62 @@ class AgentGraph:
             selected.append(
                 SelectedTool(name="get_order_status", arguments={"order_number": order_ref})
             )
+        if IntentLabel.ACCOUNT_CHANGE in labels:
+            if order_ref is None:
+                return {
+                    "status": "clarification_required",
+                    "escalation_reason": "missing_or_ambiguous_order_number",
+                    "step_count": state.step_count + 1,
+                }
+            try:
+                address = extract_proposed_address(message)
+            except AddressActionError:
+                return {
+                    "status": "clarification_required",
+                    "escalation_reason": "missing_or_ambiguous_address",
+                    "step_count": state.step_count + 1,
+                }
+            if not all(
+                (
+                    self.context.customer_id,
+                    self.context.session_id,
+                    self.context.conversation_id,
+                    self.context.run_id,
+                )
+            ):
+                return {"status": "failed", "escalation_reason": "trusted_context_missing"}
+            customer_id = cast(UUID, self.context.customer_id)
+            session_id = cast(UUID, self.context.session_id)
+            conversation_id = cast(UUID, self.context.conversation_id)
+            run_id = cast(UUID, self.context.run_id)
+            try:
+                proposal = await AddressActionService(
+                    self.context.session, self.settings, self.context.commerce
+                ).propose(
+                    organization_id=self.context.organization_id,
+                    customer_id=customer_id,
+                    customer_ref=self.context.customer_ref,
+                    session_id=session_id,
+                    conversation_id=conversation_id,
+                    run_id=run_id,
+                    order_number=order_ref,
+                    proposed_address=address,
+                )
+            except AddressActionError as exc:
+                return {
+                    "status": "failed",
+                    "escalation_reason": exc.code,
+                    "step_count": state.step_count + 1,
+                }
+            self.context.address_proposal = proposal
+            await self.emit("confirmation_required", {"status": "confirmation_required"})
+            return {
+                "status": "confirmation_required",
+                "pending_action_id": str(proposal.action_id),
+                "pending_action_hash": proposal.action_hash,
+                "step_count": state.step_count + 1,
+            }
         write_map = {
-            IntentLabel.ACCOUNT_CHANGE: "propose_shipping_address_change",
             IntentLabel.REFUND: "create_refund_request",
             IntentLabel.SALES_LEAD: "upsert_sales_lead",
         }
@@ -198,7 +256,7 @@ class AgentGraph:
         return {"selected_tools": selected, "step_count": state.step_count + 1}
 
     def _after_plan(self, state: AgentState) -> str:
-        if state.status == "escalation_required":
+        if state.status in {"confirmation_required", "escalation_required"}:
             return "interrupt"
         if state.status == "clarification_required":
             return "compose"
@@ -278,6 +336,10 @@ class AgentGraph:
         return {}
 
     async def _compose(self, state: AgentState) -> dict[str, object]:
+        if state.status == "failed":
+            reason = state.escalation_reason or "action_failed"
+            await self.emit("action_failed", {"status": "action_failed", "reason": reason})
+            return {"status": "failed", "step_count": state.step_count + 1}
         parts: list[str] = []
         locale = cast(Literal["en", "fr"], _language(_latest_user(state), self.context.locale))
         validated_refs = []
@@ -370,11 +432,21 @@ class AgentGraph:
                         order += f" Estimated delivery: {data.get('estimated_delivery_at')}."
                 parts.append(order)
         if state.status == "clarification_required":
-            parts.append(
-                "Veuillez fournir un seul numéro de commande public."
-                if locale == "fr"
-                else "Please provide one public order number."
-            )
+            address_missing = state.escalation_reason == "missing_or_ambiguous_address"
+            if locale == "fr":
+                parts.append(
+                    "Veuillez fournir le destinataire, l’adresse (ligne 1), la ville, "
+                    "la région/province, le code postal et le code pays ISO à deux lettres."
+                    if address_missing
+                    else "Veuillez fournir un seul numéro de commande public."
+                )
+            else:
+                parts.append(
+                    "Please provide recipient, address line 1, city, state/region, "
+                    "postal code, and a two-letter ISO country code."
+                    if address_missing
+                    else "Please provide one public order number."
+                )
         answer = "\n\n".join(parts) or (
             "Je ne peux pas vérifier suffisamment d’informations pour répondre."
             if locale == "fr"

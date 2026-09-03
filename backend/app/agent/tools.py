@@ -85,6 +85,12 @@ class ToolContext:
     crm: CrmProviderV1
     permissions: frozenset[Permission]
     locale: str = "en"
+    customer_id: UUID | None = None
+    session_id: UUID | None = None
+    conversation_id: UUID | None = None
+    run_id: UUID | None = None
+    request_message: str | None = None
+    address_proposal: object | None = None
 
     def provider_context(self) -> ProviderContext:
         return ProviderContext(
