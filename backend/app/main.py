@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.errors import register_error_handlers
@@ -26,7 +27,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         app.state.redis = create_redis_client(resolved_settings)
         app.state.job_queue = await create_job_queue(resolved_settings)
+        checkpoint_url = resolved_settings.database_url.replace("postgresql+asyncpg", "postgresql")
+        checkpoint_context = AsyncPostgresSaver.from_conn_string(checkpoint_url)
+        app.state.agent_checkpointer = await checkpoint_context.__aenter__()
+        await app.state.agent_checkpointer.setup()
         yield
+        await checkpoint_context.__aexit__(None, None, None)
         await app.state.job_queue.aclose()
         await close_redis_client(app.state.redis)
         await close_database_engine(app.state.db_engine)

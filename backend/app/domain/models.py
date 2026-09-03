@@ -236,6 +236,61 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AgentThread(Base, TimestampMixin):
+    __tablename__ = "agent_threads"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "conversation_id"],
+            ["conversations.organization_id", "conversations.id"],
+        ),
+        UniqueConstraint("organization_id", "conversation_id"),
+        UniqueConstraint("organization_id", "id"),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
+    checkpoint_thread_id: Mapped[str] = mapped_column(String(160), unique=True)
+    checkpoint_version: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(40), default="idle")
+    interrupt_reason: Mapped[str | None] = mapped_column(String(80))
+
+
+class AgentRun(Base, TimestampMixin):
+    __tablename__ = "agent_runs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "thread_id"],
+            ["agent_threads.organization_id", "agent_threads.id"],
+        ),
+        UniqueConstraint("organization_id", "thread_id", "idempotency_key"),
+        UniqueConstraint("organization_id", "id"),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    thread_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(40), default="running")
+    state_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class AgentEvent(Base):
+    __tablename__ = "agent_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "run_id"], ["agent_runs.organization_id", "agent_runs.id"]
+        ),
+        UniqueConstraint("run_id", "sequence_number"),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
+    sequence_number: Mapped[int] = mapped_column(Integer)
+    event_type: Mapped[str] = mapped_column(String(60))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ToolRun(Base, TimestampMixin):
     __tablename__ = "tool_runs"
     __table_args__ = (

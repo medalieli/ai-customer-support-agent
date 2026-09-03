@@ -85,3 +85,13 @@ Search is eligible only after the active version has a matching 1,536-dimensiona
 M5 adds no public main-API routes. `CommerceProviderV1` normalizes order lookup, tracking, guarded address mutation and refund-request creation. `CrmProviderV1` normalizes contact lookup/upsert and conversation-note creation. Every method accepts a trusted `ProviderContext`; browser/body identity never establishes tenant scope.
 
 Mock CRM listens on `http://localhost:8090`, with `/health/live`, `/health/ready`, and `/docs`. Its `/v1` contacts and notes require `X-Internal-API-Key`, `X-Organization-Id`, and `Idempotency-Key` for writes. Authenticated `X-Mock-Failure` simulation is development/test-only. Shared adapter errors are `not_found`, `not_authorized`, `conflict`, `validation`, `unsupported`, `rate_limited`, `timeout`, and `unavailable`.
+
+## M6 agent API
+
+Customer sessions submit an idempotent agent turn with `POST /api/v1/agent/threads/{conversation_id}/messages` and a required `Idempotency-Key` header. Conversation and tenant/customer ownership always come from the authenticated session. Identical replay returns the original run; changed content under the same key, or a second active run, returns `409`.
+
+`GET /api/v1/agent/runs/{run_id}/events` is an authenticated SSE replay endpoint. `Last-Event-ID` or `after` resumes after a durable sequence number. Events are `triage_completed`, `tool_started`, `tool_completed`, `confirmation_required`, `response_completed`, and `escalation_required`. Payloads contain only labels, safe status/reason codes, minimized tool data, visible responses, and citation receipts—never prompts, credentials, reasoning, identity, or raw provider payloads.
+
+`POST /api/v1/agent/threads/{conversation_id}/resume` supplies a generic resume value, required idempotency key, and expected checkpoint version. It reauthenticates ownership, rejects stale or non-interrupted threads, and resumes the tenant-owned LangGraph checkpoint. M6 resume performs no external write.
+
+M6 executes only knowledge, owned-order, and owned-tracking reads. Registered writes stop at `confirmation_required`; ticket creation, confirmations, refund decisions, CRM writes, and human ownership are deferred.

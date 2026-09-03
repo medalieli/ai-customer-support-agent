@@ -1,0 +1,112 @@
+import hashlib
+from uuid import UUID, uuid4
+
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.domain.models import AgentEvent, AgentRun, AgentThread
+from app.infrastructure.database import set_tenant_scope
+
+
+class RunConflict(Exception):
+    pass
+
+
+class IdempotencyConflict(Exception):
+    pass
+
+
+class AgentRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def thread(self, organization_id: UUID, conversation_id: UUID) -> AgentThread:
+        await set_tenant_scope(self.session, organization_id)
+        value = await self.session.scalar(
+            select(AgentThread).where(
+                AgentThread.organization_id == organization_id,
+                AgentThread.conversation_id == conversation_id,
+            )
+        )
+        if value:
+            return value
+        value = AgentThread(
+            organization_id=organization_id,
+            conversation_id=conversation_id,
+            checkpoint_thread_id=f"tenant:{organization_id}:thread:{uuid4()}",
+        )
+        self.session.add(value)
+        try:
+            await self.session.flush()
+        except IntegrityError:
+            await self.session.rollback()
+            await set_tenant_scope(self.session, organization_id)
+            existing = await self.session.scalar(
+                select(AgentThread).where(
+                    AgentThread.organization_id == organization_id,
+                    AgentThread.conversation_id == conversation_id,
+                )
+            )
+            if existing is None:
+                raise
+            return existing
+        return value
+
+    async def begin_run(self, thread: AgentThread, key: str, content: str) -> tuple[AgentRun, bool]:
+        request_hash = hashlib.sha256(content.encode()).hexdigest()
+        existing = await self.session.scalar(
+            select(AgentRun).where(
+                AgentRun.organization_id == thread.organization_id,
+                AgentRun.thread_id == thread.id,
+                AgentRun.idempotency_key == key,
+            )
+        )
+        if existing:
+            if existing.request_hash != request_hash:
+                raise IdempotencyConflict
+            return existing, False
+        run = AgentRun(
+            organization_id=thread.organization_id,
+            thread_id=thread.id,
+            idempotency_key=key,
+            request_hash=request_hash,
+            status="running",
+        )
+        self.session.add(run)
+        try:
+            await self.session.flush()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise RunConflict from exc
+        return run, True
+
+    async def event(self, run: AgentRun, event_type: str, payload: dict[str, object]) -> None:
+        sequence = await self.session.scalar(
+            select(func.coalesce(func.max(AgentEvent.sequence_number), 0)).where(
+                AgentEvent.run_id == run.id
+            )
+        )
+        self.session.add(
+            AgentEvent(
+                organization_id=run.organization_id,
+                run_id=run.id,
+                sequence_number=int(sequence or 0) + 1,
+                event_type=event_type,
+                payload=payload,
+            )
+        )
+        await self.session.flush()
+
+    async def events(self, organization_id: UUID, run_id: UUID, after: int) -> list[AgentEvent]:
+        await set_tenant_scope(self.session, organization_id)
+        result = await self.session.scalars(
+            select(AgentEvent)
+            .where(
+                AgentEvent.organization_id == organization_id,
+                AgentEvent.run_id == run_id,
+                AgentEvent.sequence_number > after,
+            )
+            .order_by(AgentEvent.sequence_number)
+        )
+        return list(result)

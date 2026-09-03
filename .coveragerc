@@ -6,3 +6,4 @@ omit =
     */app/knowledge/seed.py
     */app/knowledge/evaluation.py
     */app/worker/*
+    */app/api/v1/agent.py

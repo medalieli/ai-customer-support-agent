@@ -1,0 +1,6 @@
+# ADR-012: M6 durable orchestration core
+
+- **Status:** Accepted (M6)
+- **Context:** M6 needs useful read workflows and a restart-safe base for later confirmations and handoff without moving M7-M10 behavior forward.
+- **Decision:** Use a typed LangGraph with PostgreSQL checkpoints plus tenant-owned `agent_threads`, `agent_runs`, and replayable `agent_events`. Application records are the authorization boundary; opaque LangGraph checkpoint IDs include tenant scope but are never accepted from clients. OpenAI Responses strict parsing proposes multi-label intents only. Deterministic application code assigns risk, selects tools, injects authenticated identity, and blocks every write. PostgreSQL constraints enforce submission idempotency and one active run per thread. SSE exposes only allowlisted, minimized events.
+- **Consequences:** Read flows survive process/database restarts, can be inspected without stored reasoning, and establish interrupt/resume metadata for later milestones. Python 3.11+ uses native LangGraph interrupts; supported Python 3.10 persists the same explicit interrupt state because async context propagation for native interrupts is unavailable. M7-M10 must implement confirmation token consumption, domain decisions, external writes, ticket creation, and full resume execution.

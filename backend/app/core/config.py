@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     mock_crm_internal_api_key: SecretStr = SecretStr("development-crm-key")
     shopify_api_version: str = "2026-01"
     openai_api_key: SecretStr | None = None
+    agent_model: str = "gpt-5-mini"
+    agent_model_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    agent_max_steps: int = Field(default=8, ge=1, le=20)
+    agent_min_confidence: float = Field(default=0.65, ge=0, le=1)
     shopify_store_domain: str | None = None
     shopify_access_token: SecretStr | None = None
     hubspot_access_token: SecretStr | None = None
