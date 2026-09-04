@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models import AuditEvent
 
-ALLOWED_METADATA_KEYS = {"method", "role", "path", "page_size"}
+ALLOWED_METADATA_KEYS = {"method", "role", "path", "page_size", "provider", "topic", "status"}
 
 
 class AuditService:

@@ -6,9 +6,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
-from app.domain.models import Customer, Organization, OrganizationMembership, Role, StaffUser
+from app.domain.models import (
+    Customer,
+    Organization,
+    OrganizationMembership,
+    ProviderConnection,
+    Role,
+    StaffUser,
+)
 from app.infrastructure.database import create_database_engine, set_tenant_scope
 from app.services.security import hash_password, verify_password
+from app.services.webhooks import encrypt
 
 
 @dataclass(frozen=True)
@@ -83,6 +91,7 @@ CUSTOMERS = (
 
 
 async def seed(session: AsyncSession, password: str) -> None:
+    settings = get_settings()
     for item in ORGANIZATIONS:
         if await session.get(Organization, item.id) is None:
             session.add(Organization(id=item.id, slug=item.slug, name=item.name))
@@ -131,6 +140,32 @@ async def seed(session: AsyncSession, password: str) -> None:
                 session.add(
                     OrganizationMembership(
                         organization_id=organization.id, staff_user_id=staff_id, role=role
+                    )
+                )
+        for provider, endpoint_key, secret in (
+            (
+                "mock_commerce",
+                f"{organization.slug}-commerce",
+                settings.mock_commerce_webhook_secret,
+            ),
+            ("mock_crm", f"{organization.slug}-crm", settings.mock_crm_webhook_secret),
+        ):
+            connection = await session.scalar(
+                select(ProviderConnection).where(
+                    ProviderConnection.organization_id == organization.id,
+                    ProviderConnection.provider == provider,
+                )
+            )
+            if connection is None:
+                session.add(
+                    ProviderConnection(
+                        organization_id=organization.id,
+                        provider=provider,
+                        endpoint_key=endpoint_key,
+                        encrypted_current_secret=encrypt(
+                            settings, secret.get_secret_value().encode()
+                        ),
+                        active=True,
                     )
                 )
         await session.commit()

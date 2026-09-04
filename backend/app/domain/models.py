@@ -74,6 +74,9 @@ class WebhookStatus(str, enum.Enum):
     PROCESSING = "processing"
     PROCESSED = "processed"
     FAILED = "failed"
+    DEAD_LETTER = "dead_letter"
+    CONFLICT = "conflict"
+    STALE = "stale"
 
 
 class DocumentStatus(str, enum.Enum):
@@ -458,18 +461,62 @@ class AuditEvent(Base):
 
 class WebhookEvent(Base):
     __tablename__ = "webhook_events"
-    __table_args__ = (UniqueConstraint("organization_id", "provider", "external_event_id"),)
+    __table_args__ = (
+        UniqueConstraint("connection_id", "external_event_id"),
+        ForeignKeyConstraint(
+            ["organization_id", "connection_id"],
+            ["provider_connections.organization_id", "provider_connections.id"],
+        ),
+        Index("ix_webhook_claim", "status", "next_attempt_at", "received_at"),
+    )
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     provider: Mapped[str] = mapped_column(String(40))
+    connection_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
     external_event_id: Mapped[str] = mapped_column(String(200))
+    topic: Mapped[str] = mapped_column(String(120))
     payload_hash: Mapped[str] = mapped_column(String(64))
-    signature_valid: Mapped[bool] = mapped_column(Boolean)
+    encrypted_payload: Mapped[bytes] = mapped_column(LargeBinary)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[WebhookStatus] = mapped_column(Enum(WebhookStatus, native_enum=False))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
+    safe_error: Mapped[str | None] = mapped_column(String(120))
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class ProviderConnection(Base, TimestampMixin):
+    __tablename__ = "provider_connections"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "id"),
+        UniqueConstraint("provider", "endpoint_key"),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(40))
+    endpoint_key: Mapped[str] = mapped_column(String(120))
+    encrypted_current_secret: Mapped[bytes] = mapped_column(LargeBinary)
+    encrypted_previous_secret: Mapped[bytes | None] = mapped_column(LargeBinary)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class ProviderProjection(Base, TimestampMixin):
+    __tablename__ = "provider_projections"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "provider", "resource_type", "external_ref"),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(40))
+    resource_type: Mapped[str] = mapped_column(String(40))
+    external_ref: Mapped[str] = mapped_column(String(160))
+    version: Mapped[str] = mapped_column(String(80))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    safe_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
 class KnowledgeDocument(Base, TimestampMixin):

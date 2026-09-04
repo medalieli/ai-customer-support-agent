@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -33,6 +34,38 @@ async def client(tmp_path: Path) -> AsyncIterator[AsyncClient]:
 
 def headers(org: str = ORG, key: str = KEY) -> dict[str, str]:
     return {"X-Internal-API-Key": key, "X-Organization-Id": org}
+
+
+@pytest.mark.asyncio
+async def test_signed_webhook_emission(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sender = AsyncMock()
+
+    class Outbound:
+        async def __aenter__(self) -> "Outbound":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        post = sender
+
+    monkeypatch.setattr("app.main.httpx.AsyncClient", Outbound)
+    response = await client.post(
+        "/v1/webhooks/emit",
+        headers=headers(),
+        json={
+            "event_id": "ticket-event-1",
+            "topic": "ticket.reply",
+            "payload": {"id": "ticket-1", "status": "open"},
+            "duplicates": 2,
+            "invalid_signature": True,
+        },
+    )
+    assert response.status_code == 202
+    assert sender.await_count == 2
+    assert sender.await_args.kwargs["headers"]["X-Mock-Signature"] == "invalid"
 
 
 @pytest.mark.asyncio

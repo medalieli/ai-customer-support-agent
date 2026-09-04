@@ -128,3 +128,16 @@ Customer sessions submit an idempotent agent turn with `POST /api/v1/agent/threa
 `POST /api/v1/agent/threads/{conversation_id}/resume` supplies a generic resume value, required idempotency key, and expected checkpoint version. It reauthenticates ownership and rejects stale or non-interrupted threads. For an M8 address proposal, the submission response also returns a `confirmation` object with the masked current address, normalized proposed address, consequences, expiry, opaque action ID/hash, and confirmation credential. Address values and the credential never enter SSE. Resume supplies `action_id`, `confirmation_token`, and an explicit EN/FR `decision`; the server revalidates the binding and live order version before the mock-commerce write. Exact resume-key replay returns the original result; new-key replay, tampering, expiry, stale versions, and cross-tenant access fail closed.
 
 M8 adds only confirmed mock-commerce shipping-address writes. Refund decisions, CRM writes, ticket creation, human ownership, webhooks, live Shopify writes, and frontend chat remain deferred.
+
+## M12 provider webhook API
+
+Provider ingress is public but authenticated by the provider signature and a high-entropy connection
+key. `POST /api/v1/webhooks/{provider}/{endpoint_key}` accepts Shopify, HubSpot, mock-commerce, and
+mock-CRM topics. It requires JSON, enforces the configured body and replay limits, verifies the exact
+raw bytes, persists before returning `202`, and never invokes the agent or a provider in-request.
+
+Support and Admin staff may inspect minimized metadata at `GET /api/v1/staff/webhooks` and retry a
+failed/dead-letter event with `POST /api/v1/staff/webhooks/{event_id}/retry`. Responses exclude raw
+payloads, secrets, signatures, addresses, payment data, and webhook text. Both routes derive tenant
+scope from the staff session. Mock providers expose authenticated `POST /v1/webhooks/emit` controls
+for signed delivery, duplicates, delay, and invalid-signature simulation.

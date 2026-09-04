@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import AnyHttpUrl, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     internal_api_key: SecretStr = SecretStr("")
     failure_simulation_enabled: bool = False
     simulated_timeout_seconds: float = Field(default=0.05, ge=0, le=5)
+    webhook_target_url: AnyHttpUrl = AnyHttpUrl(
+        "http://api:8000/api/v1/webhooks/mock_crm/novacart-crm"
+    )
+    webhook_secret: SecretStr = SecretStr("mock-crm-webhook-secret-at-least-32")
 
     @model_validator(mode="after")
     def validate_security(self) -> "Settings":

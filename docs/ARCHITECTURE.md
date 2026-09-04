@@ -95,6 +95,17 @@ LangGraph `interrupt()` persists the checkpoint and an explicit resume reason fo
 
 Webhook ingress reads raw bytes, resolves provider/tenant by endpoint key, verifies signature and timestamp before parsing, rate-limits, and inserts a unique inbox record (`provider`, `organization_id`, `external_event_id` or payload hash). It acknowledges after durable insert. Redis queues the database event ID; workers claim it, normalize, update local order projections conditionally by provider version/time, append audit events, notify clients, and retry with exponential backoff. Poison events go to a dead-letter state with alerts. PostgreSQL is the durable job truth; Redis delivery may be repeated.
 
+### M12 implementation boundary
+
+M12 upgrades the placeholder inbox with trusted encrypted provider connections, encrypted raw
+payload retention, fingerprints, topics, claim/retry timestamps, safe errors, conflict/stale and
+dead-letter terminal states. Shopify uses raw-body HMAC-SHA256; HubSpot v3 binds method, URI, raw
+body, and timestamp. Current and previous encrypted secrets support rotation. Workers build only
+allowlisted provider projections, use resource occurrence time for monotonic updates, and recover
+due or abandoned claims. Webhook text is data only and never enters prompts, tools, authorization,
+or customer output. Live Shopify/HubSpot calls, notifications, n8n, AI replies, and frontend work
+remain out of scope.
+
 M1 implements the worker boundary with ARQ, an async Redis-backed Python worker shared with the FastAPI settings package. Its only M1 job is a health-verification probe; durable webhook jobs and the PostgreSQL inbox remain M11 scope. See ADR-010.
 
 ## Reliability limits

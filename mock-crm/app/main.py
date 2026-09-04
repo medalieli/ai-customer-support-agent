@@ -1,11 +1,17 @@
 import asyncio
+import base64
+import hashlib
 import hmac
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
+import httpx
 from fastapi import Depends, FastAPI, Header, Query, Response
+from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
 from app.errors import CrmError, register_handlers
@@ -93,6 +99,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def ready() -> dict[str, str]:
         store.initialize()
         return {"status": "ready", "storage": "available"}
+
+    class WebhookEmission(BaseModel):
+        event_id: str = Field(min_length=1, max_length=200)
+        topic: Literal[
+            "contact.updated",
+            "lead.updated",
+            "ticket.updated",
+            "ticket.assigned",
+            "ticket.reply",
+            "ticket.resolved",
+        ]
+        payload: dict[str, object]
+        duplicates: int = Field(default=1, ge=1, le=5)
+        delay_seconds: float = Field(default=0, ge=0, le=5)
+        invalid_signature: bool = False
+
+    @app.post("/v1/webhooks/emit", status_code=202)
+    async def emit_webhook(
+        command: WebhookEmission, org: Annotated[str, Depends(scope)]
+    ) -> dict[str, object]:
+        body = json.dumps(command.payload, separators=(",", ":"), sort_keys=True).encode()
+        timestamp = str(int(datetime.now(timezone.utc).timestamp()))
+        uri = str(resolved.webhook_target_url)
+        signature = base64.b64encode(
+            hmac.new(
+                resolved.webhook_secret.get_secret_value().encode(),
+                b"POST" + uri.encode() + body + timestamp.encode(),
+                hashlib.sha256,
+            ).digest()
+        ).decode()
+        if command.invalid_signature:
+            signature = "invalid"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Mock-Event-Id": command.event_id,
+            "X-Mock-Topic": command.topic,
+            "X-Mock-Timestamp": timestamp,
+            "X-Mock-Signature": signature,
+        }
+        if command.delay_seconds:
+            await asyncio.sleep(command.delay_seconds)
+        async with httpx.AsyncClient() as client:
+            for _ in range(command.duplicates):
+                await client.post(uri, content=body, headers=headers)
+        return {"status": "delivered", "deliveries": command.duplicates, "organization": org}
 
     @app.get("/v1/contacts/by-email", response_model=Contact | None)
     async def find(

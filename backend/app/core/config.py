@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     shopify_store_domain: str | None = None
     shopify_access_token: SecretStr | None = None
     hubspot_access_token: SecretStr | None = None
+    webhook_replay_window_seconds: int = Field(default=300, ge=30, le=3600)
+    webhook_max_body_bytes: int = Field(default=262144, ge=1024, le=2097152)
+    webhook_max_attempts: int = Field(default=5, ge=1, le=20)
+    webhook_retry_base_seconds: int = Field(default=5, ge=1, le=300)
+    mock_commerce_webhook_secret: SecretStr = SecretStr("mock-commerce-webhook-secret-32bytes")
+    mock_crm_webhook_secret: SecretStr = SecretStr("mock-crm-webhook-secret-at-least-32")
 
     @computed_field(repr=False)  # type: ignore[prop-decorator]
     @property
