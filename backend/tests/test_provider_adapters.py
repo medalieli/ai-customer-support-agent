@@ -21,6 +21,7 @@ from app.providers.models import (
     ProviderContext,
     ProviderErrorCode,
     SalesLeadUpsert,
+    SupportTicketUpsert,
 )
 from app.providers.shopify import ShopifyAdapter
 
@@ -464,6 +465,68 @@ async def test_mock_and_hubspot_crm_normalized_contract() -> None:
     assert (await hub.upsert_lead(context(write=True), sales)).external_ref == "lead-1"
     await mock_client.aclose()
     await hub_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_hubspot_ticket_http_contract_only() -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    seen: list[httpx.Request] = []
+    ticket = {
+        "id": "ticket-1",
+        "createdAt": now,
+        "updatedAt": now,
+        "properties": {
+            "novacart_conversation_ref": "conversation-1",
+            "subject": "human_request",
+            "content": "Customer requests help.",
+            "hs_ticket_priority": "HIGH",
+            "hs_pipeline_stage": "open",
+            "hubspot_owner_id": "",
+        },
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith("/search"):
+            return httpx.Response(200, json={"results": [ticket]})
+        if request.url.path.endswith("/batch/upsert"):
+            return httpx.Response(200, json={"results": [ticket]})
+        if request.url.path.endswith("/notes"):
+            return httpx.Response(201, json={"id": "message-1"})
+        if request.url.path.endswith("/ticket-1"):
+            return httpx.Response(200, json=ticket)
+        return httpx.Response(200, json={"results": [ticket]})
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.hubapi.com"
+    )
+    adapter = HubSpotAdapter(
+        ProviderHttpClient(
+            base_url="https://api.hubapi.com",
+            timeout=1,
+            retries=0,
+            headers={"Authorization": "Bearer mocked-only"},
+            client=client,
+        )
+    )
+    value = SupportTicketUpsert(
+        conversation_ref="conversation-1",
+        category="human_request",
+        priority="high",
+        summary="Customer requests help.",
+    )
+    found = await adapter.find_active_ticket(context(), "conversation-1")
+    assert found is not None and found.external_ref == "ticket-1"
+    assert (await adapter.upsert_ticket(context(write=True), value)).external_ref == "ticket-1"
+    assert len(await adapter.list_tickets(context())) == 1
+    assert (await adapter.get_ticket(context(), "ticket-1")).conversation_ref == "conversation-1"
+    assert (
+        await adapter.add_ticket_message(
+            context(write=True), "ticket-1", "Customer-visible reply", "customer"
+        )
+    ).external_ref == "message-1"
+    assert all(request.url.host == "api.hubapi.com" for request in seen)
+    await client.aclose()
 
 
 def test_provider_factories_and_credential_gates() -> None:

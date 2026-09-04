@@ -11,6 +11,9 @@ from app.providers.models import (
     ProviderErrorCode,
     SalesLead,
     SalesLeadUpsert,
+    SupportTicket,
+    SupportTicketUpsert,
+    TicketMessage,
 )
 
 
@@ -196,6 +199,156 @@ class HubSpotAdapter:
             timeline=p.get("novacart_timeline") or None,
             preferred_contact_method=p.get("novacart_preferred_contact_method") or "email",
             status="archived" if raw.get("archived") else "open",
+            version=str(raw.get("updatedAt") or raw.get("createdAt") or "unknown"),
+            created_at=raw["createdAt"],
+            updated_at=raw.get("updatedAt") or raw["createdAt"],
+        )
+
+    async def find_active_ticket(
+        self, context: ProviderContext, conversation_ref: str
+    ) -> SupportTicket | None:
+        response = await self.http.request(
+            "POST",
+            "/crm/v3/objects/tickets/search",
+            retry_safe=True,
+            headers={"X-Correlation-ID": context.correlation_id},
+            json={
+                "filterGroups": [
+                    {
+                        "filters": [
+                            {
+                                "propertyName": "novacart_conversation_ref",
+                                "operator": "EQ",
+                                "value": conversation_ref,
+                            },
+                            {
+                                "propertyName": "hs_pipeline_stage",
+                                "operator": "IN",
+                                "values": ["open", "in_progress"],
+                            },
+                        ]
+                    }
+                ],
+                "properties": [
+                    "novacart_conversation_ref",
+                    "subject",
+                    "content",
+                    "hs_ticket_priority",
+                    "hs_pipeline_stage",
+                    "hubspot_owner_id",
+                ],
+                "limit": 1,
+            },
+        )
+        values = response.json().get("results", [])
+        return self._ticket(values[0]) if values else None
+
+    async def upsert_ticket(
+        self, context: ProviderContext, ticket: SupportTicketUpsert
+    ) -> SupportTicket:
+        if not context.idempotency_key:
+            raise ProviderError(ProviderErrorCode.VALIDATION)
+        headers = {"X-Correlation-ID": context.correlation_id}
+        if ticket.version:
+            headers["If-Match"] = ticket.version
+        response = await self.http.request(
+            "POST",
+            "/crm/v3/objects/tickets/batch/upsert",
+            headers=headers,
+            json={
+                "inputs": [
+                    {
+                        "id": ticket.conversation_ref,
+                        "idProperty": "novacart_conversation_ref",
+                        "objectWriteTraceId": context.idempotency_key,
+                        "properties": {
+                            "novacart_conversation_ref": ticket.conversation_ref,
+                            "subject": ticket.category,
+                            "content": ticket.summary,
+                            "hs_ticket_priority": ticket.priority,
+                            "hs_pipeline_stage": ticket.status,
+                            "hubspot_owner_id": ticket.assigned_staff_ref or "",
+                        },
+                    }
+                ]
+            },
+        )
+        values = response.json().get("results", [])
+        if not values:
+            raise ProviderError(ProviderErrorCode.UNAVAILABLE)
+        return self._ticket(values[0])
+
+    async def list_tickets(self, context: ProviderContext) -> list[SupportTicket]:
+        response = await self.http.request(
+            "GET",
+            "/crm/v3/objects/tickets",
+            retry_safe=True,
+            headers={"X-Correlation-ID": context.correlation_id},
+            params={
+                "properties": "novacart_conversation_ref,subject,content,hs_ticket_priority,"
+                "hs_pipeline_stage,hubspot_owner_id"
+            },
+        )
+        return [self._ticket(item) for item in response.json().get("results", [])]
+
+    async def get_ticket(self, context: ProviderContext, ticket_ref: str) -> SupportTicket:
+        response = await self.http.request(
+            "GET",
+            f"/crm/v3/objects/tickets/{ticket_ref}",
+            retry_safe=True,
+            headers={"X-Correlation-ID": context.correlation_id},
+            params={
+                "properties": "novacart_conversation_ref,subject,content,hs_ticket_priority,"
+                "hs_pipeline_stage,hubspot_owner_id"
+            },
+        )
+        return self._ticket(response.json())
+
+    async def add_ticket_message(
+        self, context: ProviderContext, ticket_ref: str, body: str, visibility: str
+    ) -> TicketMessage:
+        if not context.idempotency_key:
+            raise ProviderError(ProviderErrorCode.VALIDATION)
+        timestamp = datetime.now(timezone.utc)
+        response = await self.http.request(
+            "POST",
+            "/crm/v3/objects/notes",
+            headers={"X-Correlation-ID": context.correlation_id},
+            json={
+                "properties": {
+                    "hs_timestamp": timestamp.isoformat(),
+                    "hs_note_body": body,
+                    "novacart_visibility": visibility,
+                },
+                "associations": [
+                    {
+                        "to": {"id": ticket_ref},
+                        "types": [
+                            {"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": 228}
+                        ],
+                    }
+                ],
+            },
+        )
+        return TicketMessage(
+            external_ref=response.json()["id"],
+            ticket_ref=ticket_ref,
+            visibility=visibility,
+            body=body,
+            created_at=timestamp,
+        )
+
+    @staticmethod
+    def _ticket(raw: dict[str, Any]) -> SupportTicket:
+        p = raw.get("properties") or {}
+        return SupportTicket(
+            external_ref=raw["id"],
+            conversation_ref=p.get("novacart_conversation_ref") or "",
+            category=p.get("subject") or "support",
+            priority=(p.get("hs_ticket_priority") or "normal").lower(),
+            summary=p.get("content") or "",
+            status=p.get("hs_pipeline_stage") or "open",
+            assigned_staff_ref=p.get("hubspot_owner_id") or None,
             version=str(raw.get("updatedAt") or raw.get("createdAt") or "unknown"),
             created_at=raw["createdAt"],
             updated_at=raw.get("updatedAt") or raw["createdAt"],

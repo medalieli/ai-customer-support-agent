@@ -135,6 +135,37 @@ class ConversationNote(BaseModel):
     created_at: datetime
 
 
+class SupportTicketUpsert(BaseModel):
+    conversation_ref: str
+    category: str
+    priority: str
+    summary: str
+    status: str = "open"
+    assigned_staff_ref: str | None = None
+    version: str | None = None
+
+
+class SupportTicket(BaseModel):
+    external_ref: str
+    conversation_ref: str
+    category: str
+    priority: str
+    summary: str
+    status: str
+    assigned_staff_ref: str | None = None
+    version: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class TicketMessage(BaseModel):
+    external_ref: str
+    ticket_ref: str
+    visibility: str
+    body: str
+    created_at: datetime
+
+
 class ProviderErrorCode(str, Enum):
     NOT_FOUND = "not_found"
     NOT_AUTHORIZED = "not_authorized"

@@ -198,6 +198,7 @@ class Conversation(Base, TimestampMixin):
     )
     assigned_staff_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     locale: Mapped[str] = mapped_column(String(5), default="en")
+    ownership_state: Mapped[str] = mapped_column(String(30), default="ai_active")
 
 
 class Message(Base):
@@ -433,6 +434,9 @@ class SupportTicket(Base, TimestampMixin):
     priority: Mapped[str] = mapped_column(String(20))
     status: Mapped[TicketStatus] = mapped_column(Enum(TicketStatus, native_enum=False))
     summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    provider_ref: Mapped[str | None] = mapped_column(String(160))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AuditEvent(Base):

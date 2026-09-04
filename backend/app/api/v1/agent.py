@@ -26,6 +26,7 @@ from app.providers.factory import create_commerce_provider, create_crm_provider
 from app.repositories.conversations import ConversationRepository
 from app.services.address_actions import AddressActionError, AddressActionService, AddressProposal
 from app.services.auth import AuthorizationError, ResourceNotFoundError
+from app.services.handoff import HandoffError, HandoffService, OpenAIHandoffSummaryModel
 from app.services.refunds import RefundError, RefundProposal, RefundService
 from app.services.sales_leads import (
     OpenAILeadExtractor,
@@ -186,6 +187,23 @@ async def submit_message(
         raise ResourceNotFoundError
     await session.commit()
 
+    if conversation.ownership_state in {"handoff_pending", "staff_active"}:
+        run.status = conversation.ownership_state
+        thread.status = conversation.ownership_state
+        await repo.event(run, "handoff_requested", {"status": conversation.ownership_state})
+        await session.commit()
+        return AgentRunResponse(
+            run_id=run.id,
+            status=run.status,
+            duplicate=False,
+            checkpoint_version=thread.checkpoint_version,
+            message=(
+                "Votre message a été ajouté au dossier humain."
+                if conversation.locale == "fr"
+                else "Your message was added to the human support ticket."
+            ),
+        )
+
     async def emit(event_type: str, data: dict[str, object]) -> None:
         await repo.event(run, event_type, data)
         await session.commit()
@@ -249,6 +267,35 @@ async def submit_message(
         run.status = final.status
         thread.status = final.status
         thread.interrupt_reason = final.escalation_reason
+        if final.status == "escalation_required":
+            summary_factory = getattr(
+                request.app.state, "agent_handoff_summary_factory", OpenAIHandoffSummaryModel
+            )
+            try:
+                ticket = await HandoffService(
+                    session, settings, create_crm_provider(settings)
+                ).escalate(
+                    organization_id=principal.organization_id,
+                    customer_id=principal.subject_id,
+                    conversation_id=conversation_id,
+                    reason_code=final.escalation_reason or "agent_escalation",
+                    correlation_id=str(run.id),
+                    summary_model=summary_factory(settings),
+                )
+                run.state_json = {
+                    **run.state_json,
+                    "handoff": {
+                        "ticket_id": str(ticket.id),
+                        "reason": ticket.reason_code,
+                        "status": "handoff_pending",
+                    },
+                }
+                run.status = thread.status = "handoff_pending"
+                thread.interrupt_reason = ticket.reason_code
+                await repo.event(run, "handoff_requested", {"reason": ticket.reason_code})
+                await repo.event(run, "ticket_created", {"ticket_id": str(ticket.id)})
+            except HandoffError:
+                run.status = thread.status = "failed"
         thread.checkpoint_version += 1
         if final.messages and final.messages[-1].role == "assistant":
             await conversations.add_message(

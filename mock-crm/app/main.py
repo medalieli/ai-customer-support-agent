@@ -9,7 +9,18 @@ from fastapi import Depends, FastAPI, Header, Query, Response
 
 from app.config import Settings, get_settings
 from app.errors import CrmError, register_handlers
-from app.schemas import Contact, ContactUpsert, Lead, LeadUpsert, Note, NoteCreate
+from app.schemas import (
+    Contact,
+    ContactUpsert,
+    Lead,
+    LeadUpsert,
+    Note,
+    NoteCreate,
+    Ticket,
+    TicketMessage,
+    TicketMessageCreate,
+    TicketUpsert,
+)
 from app.store import CrmStore
 
 
@@ -150,6 +161,55 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise CrmError(422, "validation", "Valid idempotency and contact binding are required.")
         return Lead.model_validate(
             store.upsert_lead(org, key, payload.model_dump(mode="json"), version)
+        )
+
+    @app.get("/v1/tickets/active", response_model=Ticket | None)
+    async def active_ticket(
+        conversation_ref: Annotated[str, Query()],
+        org: Annotated[str, Depends(scope)],
+        response: Response,
+    ) -> Ticket | None:
+        result = store.find_active_ticket(org, conversation_ref)
+        if result is None:
+            response.status_code = 204
+            return None
+        return Ticket.model_validate(result)
+
+    @app.get("/v1/tickets", response_model=list[Ticket])
+    async def tickets(org: Annotated[str, Depends(scope)]) -> list[Ticket]:
+        return [Ticket.model_validate(item) for item in store.list_tickets(org)]
+
+    @app.get("/v1/tickets/{ticket_ref}", response_model=Ticket)
+    async def ticket(ticket_ref: str, org: Annotated[str, Depends(scope)]) -> Ticket:
+        result = store.get_ticket(org, ticket_ref)
+        if result is None:
+            raise CrmError(404, "not_found", "The ticket was not found.")
+        return Ticket.model_validate(result)
+
+    @app.put("/v1/tickets/by-conversation", response_model=Ticket)
+    async def upsert_ticket(
+        payload: TicketUpsert,
+        org: Annotated[str, Depends(scope)],
+        key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        version: Annotated[str | None, Header(alias="If-Match")] = None,
+    ) -> Ticket:
+        if not key:
+            raise CrmError(422, "validation", "Idempotency-Key is required.")
+        return Ticket.model_validate(
+            store.upsert_ticket(org, key, payload.model_dump(mode="json"), version)
+        )
+
+    @app.post("/v1/tickets/{ticket_ref}/messages", response_model=TicketMessage)
+    async def ticket_message(
+        ticket_ref: str,
+        payload: TicketMessageCreate,
+        org: Annotated[str, Depends(scope)],
+        key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    ) -> TicketMessage:
+        if not key:
+            raise CrmError(422, "validation", "Idempotency-Key is required.")
+        return TicketMessage.model_validate(
+            store.add_ticket_message(org, ticket_ref, key, payload.body, payload.visibility)
         )
 
     return app

@@ -1,5 +1,25 @@
 # M2 HTTP API
 
+## M11 human handoff API
+
+Escalation creates at most one active tenant-scoped ticket per conversation and changes ownership
+from `ai_active` to `handoff_pending`. A successful staff claim changes it to `staff_active`; resolve
+changes it to `resolved`, while return-to-AI closes the ticket and restores `ai_active`. During
+handoff or staff ownership, customer messages remain durable but the agent does not answer or run
+tools.
+
+Support and Admin staff can list and retrieve their tenant queue at `GET /staff/tickets` and
+`GET /staff/tickets/{ticket_id}`. `POST /staff/tickets/{ticket_id}/{action}` accepts `claim`,
+`reply`, `note`, `resolve`, `close`, or `return_to_ai`, plus the current ticket `version` and an
+`Idempotency-Key`. Replies are customer-visible; notes are private. Customers and cross-tenant
+staff receive no queue or ticket access. Stale versions and invalid ownership transitions return
+safe conflicts.
+
+Ticket summaries contain only validated conversation/tool evidence, citation receipt IDs,
+pending/failed action references, the deterministic reason/priority, and timestamp. OpenAI creates
+the strict draft; validation failure uses an explicitly marked deterministic summary so escalation
+still succeeds. Mock CRM is the only local write target; HubSpot coverage uses mocked HTTP only.
+
 ## M10 consented CRM lead workflow
 
 Authenticated customer messages sent to `POST /api/v1/agent/threads/{conversation_id}/messages`

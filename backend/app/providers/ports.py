@@ -11,6 +11,9 @@ from app.providers.models import (
     RefundRequest,
     SalesLead,
     SalesLeadUpsert,
+    SupportTicket,
+    SupportTicketUpsert,
+    TicketMessage,
     Tracking,
 )
 
@@ -35,3 +38,14 @@ class CrmProviderV1(Protocol):
     async def create_conversation_note(
         self, context: ProviderContext, contact_ref: str, body: str
     ) -> ConversationNote: ...
+    async def find_active_ticket(
+        self, context: ProviderContext, conversation_ref: str
+    ) -> SupportTicket | None: ...
+    async def upsert_ticket(
+        self, context: ProviderContext, ticket: SupportTicketUpsert
+    ) -> SupportTicket: ...
+    async def list_tickets(self, context: ProviderContext) -> list[SupportTicket]: ...
+    async def get_ticket(self, context: ProviderContext, ticket_ref: str) -> SupportTicket: ...
+    async def add_ticket_message(
+        self, context: ProviderContext, ticket_ref: str, body: str, visibility: str
+    ) -> TicketMessage: ...

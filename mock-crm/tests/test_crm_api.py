@@ -150,6 +150,62 @@ async def test_lead_validation_isolation_and_not_found(client: AsyncClient) -> N
 
 
 @pytest.mark.asyncio
+async def test_ticket_lifecycle_idempotency_concurrency_and_isolation(client: AsyncClient) -> None:
+    payload = {
+        "conversation_ref": "conversation-1",
+        "category": "human_request",
+        "priority": "normal",
+        "summary": "Customer requested a person.",
+        "status": "open",
+        "assigned_staff_ref": None,
+    }
+    write = {**headers(), "Idempotency-Key": "ticket-create-001"}
+    created = await client.put("/v1/tickets/by-conversation", headers=write, json=payload)
+    assert created.status_code == 200
+    assert (
+        await client.put("/v1/tickets/by-conversation", headers=write, json=payload)
+    ).json() == created.json()
+    assert len((await client.get("/v1/tickets", headers=headers())).json()) == 1
+    assert (
+        await client.get(
+            "/v1/tickets/active", headers=headers(), params={"conversation_ref": "conversation-1"}
+        )
+    ).status_code == 200
+    ref = created.json()["external_ref"]
+    assert (await client.get(f"/v1/tickets/{ref}", headers=headers(OTHER))).status_code == 404
+    stale = await client.put(
+        "/v1/tickets/by-conversation",
+        headers={**headers(), "Idempotency-Key": "ticket-claim-stale"},
+        json={**payload, "status": "in_progress", "assigned_staff_ref": "staff-1"},
+    )
+    assert stale.status_code == 409
+    claimed = await client.put(
+        "/v1/tickets/by-conversation",
+        headers={
+            **headers(),
+            "Idempotency-Key": "ticket-claim-001",
+            "If-Match": created.json()["version"],
+        },
+        json={**payload, "status": "in_progress", "assigned_staff_ref": "staff-1"},
+    )
+    assert claimed.status_code == 200
+    message_headers = {**headers(), "Idempotency-Key": "ticket-message-001"}
+    message = await client.post(
+        f"/v1/tickets/{ref}/messages",
+        headers=message_headers,
+        json={"body": "A safe reply.", "visibility": "customer"},
+    )
+    assert message.status_code == 200
+    assert (
+        await client.post(
+            f"/v1/tickets/{ref}/messages",
+            headers=message_headers,
+            json={"body": "A safe reply.", "visibility": "customer"},
+        )
+    ).json() == message.json()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failure,status",
     [

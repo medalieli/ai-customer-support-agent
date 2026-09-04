@@ -24,6 +24,7 @@ class ConversationResponse(BaseModel):
     id: UUID
     status: str
     owner: str
+    ownership_state: str
     title: str | None
     locale: str
     created_at: datetime
@@ -49,6 +50,7 @@ def conversation_response(item: Conversation) -> ConversationResponse:
         id=item.id,
         status=item.status.value,
         owner=item.owner.value,
+        ownership_state=item.ownership_state,
         title=item.title,
         locale=item.locale,
         created_at=item.created_at,

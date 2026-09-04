@@ -314,7 +314,7 @@ def graph_context() -> ToolContext:
     [
         (RefundOutcome.ELIGIBLE, "confirmation_required"),
         (RefundOutcome.INELIGIBLE, "completed"),
-        (RefundOutcome.MANUAL_REVIEW_REQUIRED, "completed"),
+        (RefundOutcome.MANUAL_REVIEW_REQUIRED, "escalation_required"),
     ],
 )
 async def test_langgraph_refund_routes_and_cited_explanation(
@@ -378,6 +378,8 @@ async def test_langgraph_refund_routes_and_cited_explanation(
     assert result["status"] == expected_status
     if decision == RefundOutcome.ELIGIBLE:
         assert any(name == "confirmation_required" for name, _ in events)
+    elif decision == RefundOutcome.MANUAL_REVIEW_REQUIRED:
+        assert any(name == "escalation_required" for name, _ in events)
     else:
         response = next(payload for name, payload in events if name == "response_completed")
         assert receipt in str(response)

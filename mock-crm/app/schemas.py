@@ -46,3 +46,30 @@ class Lead(LeadUpsert):
     version: str
     created_at: datetime
     updated_at: datetime
+
+
+class TicketUpsert(BaseModel):
+    conversation_ref: str = Field(min_length=1, max_length=160)
+    category: str = Field(min_length=2, max_length=80)
+    priority: str = Field(pattern=r"^(low|normal|high|urgent)$")
+    summary: str = Field(min_length=1, max_length=2000)
+    status: str = Field(pattern=r"^(open|in_progress|resolved|closed|returned_to_ai)$")
+    assigned_staff_ref: str | None = Field(default=None, max_length=160)
+
+
+class Ticket(TicketUpsert):
+    external_ref: str
+    version: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class TicketMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+    visibility: str = Field(pattern=r"^(customer|internal)$")
+
+
+class TicketMessage(TicketMessageCreate):
+    external_ref: str
+    ticket_ref: str
+    created_at: datetime

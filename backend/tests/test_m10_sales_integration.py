@@ -20,6 +20,9 @@ from app.providers.models import (
     ProviderErrorCode,
     SalesLead,
     SalesLeadUpsert,
+    SupportTicket,
+    SupportTicketUpsert,
+    TicketMessage,
 )
 from app.seed import seed
 from app.services.sales_leads import LeadFields, SalesLeadError, SalesLeadService
@@ -100,6 +103,27 @@ class MemoryCrm:
                 created_at=datetime.now(timezone.utc),
             )
         return self.notes[key]
+
+    async def find_active_ticket(
+        self, context: ProviderContext, conversation_ref: str
+    ) -> SupportTicket | None:
+        raise NotImplementedError
+
+    async def upsert_ticket(
+        self, context: ProviderContext, ticket: SupportTicketUpsert
+    ) -> SupportTicket:
+        raise NotImplementedError
+
+    async def list_tickets(self, context: ProviderContext) -> list[SupportTicket]:
+        raise NotImplementedError
+
+    async def get_ticket(self, context: ProviderContext, ticket_ref: str) -> SupportTicket:
+        raise NotImplementedError
+
+    async def add_ticket_message(
+        self, context: ProviderContext, ticket_ref: str, body: str, visibility: str
+    ) -> TicketMessage:
+        raise NotImplementedError
 
 
 @pytest.fixture

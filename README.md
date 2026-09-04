@@ -1,13 +1,13 @@
 # NovaCart AI Customer Support Agent
 
 NovaCart is a standalone portfolio project for a production-style customer-support platform.
-**Milestones M0 through M10 are complete.** M10 adds explicit-consent sales-lead capture through
-LangGraph and the M5 CRM provider contract.
+**Milestones M0 through M11 are complete.** M11 adds durable human escalation, tenant-scoped
+support tickets, and an RBAC-protected staff handoff lifecycle.
 
 The local workflow uses real OpenAI structured extraction only when configured and always uses the
 persistent mock CRM. HubSpot remains credential-gated and is verified with mocked HTTP contracts;
-live Shopify/HubSpot validation, automatic outreach, human handoff, webhooks, and the final product
-interface remain deferred.
+live Shopify/HubSpot validation, external notifications, webhooks, and the final staff inbox remain
+deferred.
 
 ## Foundation services
 

@@ -13,6 +13,7 @@ from app.agent.state import (
     AgentState,
     CitationRef,
     IntentLabel,
+    IntentScore,
     RiskLevel,
     SanitizedResult,
     SelectedTool,
@@ -24,6 +25,7 @@ from app.core.config import Settings
 from app.knowledge.retrieval import Citation, validate_citation
 from app.providers.order_numbers import extract_order_number
 from app.services.address_actions import AddressActionError, AddressActionService
+from app.services.handoff import explicit_human_request
 from app.services.refunds import (
     RefundError,
     RefundOutcome,
@@ -131,6 +133,29 @@ class AgentGraph:
     async def _triage(self, state: AgentState) -> dict[str, object]:
         if self._bounded(state):
             return {"status": "escalation_required", "escalation_reason": "maximum_steps"}
+        message = self.context.request_message or _latest_user(state)
+        lowered = message.casefold()
+        deterministic_reason = (
+            "explicit_human_request"
+            if explicit_human_request(message)
+            else "security_sensitive_account"
+            if re.search(
+                r"\b(account hacked|account takeover|stolen card|payment card|fraud|"
+                r"compte pirat[ée]|carte vol[ée]e|fraude)\b",
+                lowered,
+            )
+            else None
+        )
+        if deterministic_reason:
+            await self.emit("escalation_required", {"reason": deterministic_reason})
+            return {
+                "intents": [IntentScore(label=IntentLabel.HUMAN_HELP, confidence=1.0)],
+                "confidence": 1.0,
+                "risk_level": RiskLevel.ESCALATION,
+                "step_count": state.step_count + 1,
+                "status": "escalation_required",
+                "escalation_reason": deterministic_reason,
+            }
         try:
             raw = await self.triage_model.classify(
                 self.context.request_message or _latest_user(state)
@@ -313,6 +338,15 @@ class AgentGraph:
                     "pending_action_hash": refund_proposal.action_hash,
                     "sanitized_results": [result],
                     "citations": citations,
+                    "step_count": state.step_count + 1,
+                }
+            if refund_proposal.outcome == RefundOutcome.MANUAL_REVIEW_REQUIRED:
+                await self.emit("escalation_required", {"reason": "refund_manual_review"})
+                return {
+                    "sanitized_results": [result],
+                    "citations": citations,
+                    "status": "escalation_required",
+                    "escalation_reason": "refund_manual_review",
                     "step_count": state.step_count + 1,
                 }
             return {

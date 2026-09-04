@@ -8,6 +8,9 @@ from app.providers.models import (
     ProviderErrorCode,
     SalesLead,
     SalesLeadUpsert,
+    SupportTicket,
+    SupportTicketUpsert,
+    TicketMessage,
 )
 
 
@@ -74,3 +77,51 @@ class MockCrmAdapter:
             json={"body": body},
         )
         return ConversationNote.model_validate(response.json())
+
+    async def find_active_ticket(
+        self, context: ProviderContext, conversation_ref: str
+    ) -> SupportTicket | None:
+        response = await self.http.request(
+            "GET",
+            "/v1/tickets/active",
+            headers=self._headers(context),
+            params={"conversation_ref": conversation_ref},
+        )
+        return (
+            None if response.status_code == 204 else SupportTicket.model_validate(response.json())
+        )
+
+    async def upsert_ticket(
+        self, context: ProviderContext, ticket: SupportTicketUpsert
+    ) -> SupportTicket:
+        headers = self._headers(context, write=True)
+        if ticket.version:
+            headers["If-Match"] = ticket.version
+        response = await self.http.request(
+            "PUT",
+            "/v1/tickets/by-conversation",
+            headers=headers,
+            json=ticket.model_dump(mode="json", exclude={"version"}),
+        )
+        return SupportTicket.model_validate(response.json())
+
+    async def list_tickets(self, context: ProviderContext) -> list[SupportTicket]:
+        response = await self.http.request("GET", "/v1/tickets", headers=self._headers(context))
+        return [SupportTicket.model_validate(item) for item in response.json()]
+
+    async def get_ticket(self, context: ProviderContext, ticket_ref: str) -> SupportTicket:
+        response = await self.http.request(
+            "GET", f"/v1/tickets/{ticket_ref}", headers=self._headers(context)
+        )
+        return SupportTicket.model_validate(response.json())
+
+    async def add_ticket_message(
+        self, context: ProviderContext, ticket_ref: str, body: str, visibility: str
+    ) -> TicketMessage:
+        response = await self.http.request(
+            "POST",
+            f"/v1/tickets/{ticket_ref}/messages",
+            headers=self._headers(context, write=True),
+            json={"body": body, "visibility": visibility},
+        )
+        return TicketMessage.model_validate(response.json())
