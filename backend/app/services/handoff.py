@@ -374,6 +374,17 @@ class HandoffService:
                 raise HandoffError("provider_failure") from exc
             external = reconciled
         ticket.provider_ref = external.external_ref
+        from app.services.provider_bindings import bind_resource
+
+        await bind_resource(
+            self.session,
+            self.settings,
+            organization_id=organization_id,
+            customer_id=customer_id,
+            conversation_id=conversation_id,
+            resource_type="ticket",
+            external_ref=external.external_ref,
+        )
         conversation.owner = ConversationOwner.AI
         conversation.ownership_state = "handoff_pending"
         await self._audit(

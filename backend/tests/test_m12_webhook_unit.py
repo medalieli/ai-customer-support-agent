@@ -14,9 +14,21 @@ from starlette.requests import Request
 
 from app.api.v1 import webhooks as api
 from app.core.config import Settings
-from app.domain.models import Role
+from app.domain.models import Role, WebhookStatus
 from app.services.auth import AuthorizationError, Principal
-from app.services.webhooks import WebhookRejected, decrypt, encrypt, safe_projection, verify
+from app.services.provider_bindings import bind_resource, provider_name
+from app.services.webhooks import (
+    WebhookRejected,
+    _clean_public_text,
+    _order_data,
+    _resource_identity,
+    _ticket_data,
+    decrypt,
+    encrypt,
+    process,
+    safe_projection,
+    verify,
+)
 
 
 @pytest.fixture
@@ -150,6 +162,78 @@ def test_staff_guard() -> None:
     api._staff(principal)
     with pytest.raises(AuthorizationError):
         api._staff(Principal("customer", uuid4(), uuid4(), None, uuid4()))
+
+
+def test_real_provider_binding_names_are_explicit(settings: Settings) -> None:
+    integration = settings.model_copy(
+        update={"commerce_provider": "shopify", "crm_provider": "hubspot"}
+    )
+    assert provider_name(integration, "order") == "shopify"
+    assert provider_name(integration, "ticket") == "hubspot"
+    with pytest.raises(ValueError, match="resource type"):
+        provider_name(integration, "contact")
+
+
+def test_reconciliation_helpers_minimize_and_sanitize() -> None:
+    assert _resource_identity([], "orders/updated") == ("unknown", "")
+    assert _resource_identity([{"objectId": 42}], "ticket.reply") == ("ticket", "42")
+    assert _resource_identity({"admin_graphql_api_id": "gid://order/1"}, "orders/updated") == (
+        "order",
+        "gid://order/1",
+    )
+    assert _order_data(
+        SimpleNamespace(
+            status="open",
+            fulfillment_status="fulfilled",
+            tracking=None,
+            refund_requests=[SimpleNamespace(status="pending")],
+        )
+    ) == {
+        "status": "open",
+        "fulfillment_status": "fulfilled",
+        "tracking_status": None,
+        "refund_statuses": ["pending"],
+    }
+    assert _order_data(
+        SimpleNamespace(
+            status="open",
+            fulfillment_status="partial",
+            tracking=SimpleNamespace(events=[SimpleNamespace(status="in_transit")]),
+            refund_requests=[],
+        )
+    )["tracking_status"] == "in_transit"
+    assert _ticket_data(SimpleNamespace(status="open", assigned_staff_ref="staff")) == {
+        "status": "open",
+        "assigned_staff_ref": "staff",
+    }
+    assert _clean_public_text("  hello\x00 <script>  ") == "hello &lt;script&gt;"
+
+
+@pytest.mark.asyncio
+async def test_processor_missing_event_is_safe(settings: Settings) -> None:
+    session = SimpleNamespace(get=AsyncMock(return_value=None))
+    assert await process(session, settings, uuid4()) == "missing"
+    terminal = SimpleNamespace(organization_id=uuid4(), status=WebhookStatus.PROCESSED)
+    session = SimpleNamespace(get=AsyncMock(return_value=terminal), execute=AsyncMock())
+    assert await process(session, settings, uuid4()) == "processed"
+
+
+@pytest.mark.asyncio
+async def test_binding_requires_connection_and_reuses_existing(settings: Settings) -> None:
+    values = {
+        "organization_id": uuid4(),
+        "customer_id": uuid4(),
+        "conversation_id": uuid4(),
+        "resource_type": "order",
+        "external_ref": "order-1",
+    }
+    missing = SimpleNamespace(scalar=AsyncMock(return_value=None))
+    with pytest.raises(RuntimeError, match="provider_connection_missing"):
+        await bind_resource(missing, settings, **values)
+    existing = SimpleNamespace(id=uuid4())
+    connection = SimpleNamespace(id=uuid4())
+    session = SimpleNamespace(scalar=AsyncMock(side_effect=[connection, existing]))
+    assert await bind_resource(session, settings, **values) is existing
 
 
 @pytest.mark.asyncio

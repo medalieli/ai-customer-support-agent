@@ -49,3 +49,6 @@ class CrmProviderV1(Protocol):
     async def add_ticket_message(
         self, context: ProviderContext, ticket_ref: str, body: str, visibility: str
     ) -> TicketMessage: ...
+    async def list_ticket_messages(
+        self, context: ProviderContext, ticket_ref: str
+    ) -> list[TicketMessage]: ...

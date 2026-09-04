@@ -338,6 +338,38 @@ class HubSpotAdapter:
             created_at=timestamp,
         )
 
+    async def list_ticket_messages(
+        self, context: ProviderContext, ticket_ref: str
+    ) -> list[TicketMessage]:
+        response = await self.http.request(
+            "GET",
+            f"/crm/v3/objects/tickets/{ticket_ref}/associations/notes",
+            retry_safe=True,
+            headers={"X-Correlation-ID": context.correlation_id},
+        )
+        messages: list[TicketMessage] = []
+        for association in response.json().get("results", []):
+            note_ref = str(association["id"])
+            note = await self.http.request(
+                "GET",
+                f"/crm/v3/objects/notes/{note_ref}",
+                retry_safe=True,
+                headers={"X-Correlation-ID": context.correlation_id},
+                params={"properties": "hs_note_body,novacart_visibility,hs_timestamp"},
+            )
+            raw = note.json()
+            properties = raw.get("properties") or {}
+            messages.append(
+                TicketMessage(
+                    external_ref=note_ref,
+                    ticket_ref=ticket_ref,
+                    visibility=properties.get("novacart_visibility") or "internal",
+                    body=properties.get("hs_note_body") or "",
+                    created_at=properties.get("hs_timestamp") or raw.get("createdAt"),
+                )
+            )
+        return messages
+
     @staticmethod
     def _ticket(raw: dict[str, Any]) -> SupportTicket:
         p = raw.get("properties") or {}

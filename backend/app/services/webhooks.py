@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import html
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -12,8 +13,29 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.domain.models import ProviderConnection, ProviderProjection, WebhookEvent, WebhookStatus
+from app.domain.models import (
+    Conversation,
+    ConversationOwner,
+    ConversationStatus,
+    MessageRole,
+    OrganizationMembership,
+    ProviderConnection,
+    ProviderProjection,
+    ProviderResourceBinding,
+    Status,
+    TicketStatus,
+    WebhookConversationEffect,
+    WebhookEvent,
+    WebhookStatus,
+)
+from app.domain.models import (
+    SupportTicket as DbSupportTicket,
+)
 from app.infrastructure.database import set_tenant_scope
+from app.providers.factory import create_commerce_provider, create_crm_provider
+from app.providers.models import Order, ProviderContext, SupportTicket, TicketMessage
+from app.providers.ports import CommerceProviderV1, CrmProviderV1
+from app.repositories.conversations import ConversationRepository
 from app.services.audit import AuditService
 
 ALLOWED_TOPICS = {
@@ -35,6 +57,7 @@ ALLOWED_TOPICS = {
         "ticket.propertyChange",
         "ticket.assignment",
         "ticket.reply",
+        "ticket.note",
         "ticket.resolution",
     },
     "mock_commerce": {
@@ -50,6 +73,7 @@ ALLOWED_TOPICS = {
         "ticket.updated",
         "ticket.assigned",
         "ticket.reply",
+        "ticket.note",
         "ticket.resolved",
     },
 }
@@ -293,8 +317,159 @@ def safe_projection(payload: Any, topic: str) -> tuple[str, str, str, dict[str, 
     return resource, ref, version, allowed
 
 
+def _resource_identity(payload: Any, topic: str) -> tuple[str, str]:
+    item = payload[0] if isinstance(payload, list) and payload else payload
+    if not isinstance(item, dict):
+        return "unknown", ""
+    resource_type = "ticket" if "ticket" in topic else "order"
+    candidates = (
+        ("ticket_ref", "ticketId", "objectId", "id")
+        if resource_type == "ticket"
+        else ("order_ref", "admin_graphql_api_id", "order_id", "id")
+    )
+    return resource_type, str(next((item[key] for key in candidates if item.get(key)), ""))[:160]
+
+
+def _order_data(order: Order) -> dict[str, Any]:
+    tracking_status = (
+        order.tracking.events[-1].status if order.tracking and order.tracking.events else None
+    )
+    return {
+        "status": order.status,
+        "fulfillment_status": order.fulfillment_status,
+        "tracking_status": tracking_status,
+        "refund_statuses": [item.status for item in order.refund_requests],
+    }
+
+
+def _ticket_data(ticket: SupportTicket) -> dict[str, Any]:
+    return {
+        "status": ticket.status,
+        "assigned_staff_ref": ticket.assigned_staff_ref,
+    }
+
+
+def _clean_public_text(value: str) -> str:
+    return html.escape(" ".join(value.replace("\x00", "").split())[:4000])
+
+
+async def _append_effects(
+    session: AsyncSession,
+    event: WebhookEvent,
+    bindings: list[ProviderResourceBinding],
+    safe_data: dict[str, Any],
+    version: str,
+    public_reply: TicketMessage | None,
+) -> None:
+    repo = ConversationRepository(session)
+    logical = hashlib.sha256(
+        json.dumps(
+            [event.topic, version, safe_data, public_reply.external_ref if public_reply else None],
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    for binding in bindings:
+        prior = await session.scalar(
+            select(WebhookConversationEffect).where(
+                WebhookConversationEffect.binding_id == binding.id,
+                WebhookConversationEffect.logical_key == logical,
+            )
+        )
+        if prior:
+            continue
+        conversation = await session.scalar(
+            select(Conversation)
+            .where(
+                Conversation.organization_id == event.organization_id,
+                Conversation.id == binding.conversation_id,
+            )
+            .with_for_update()
+        )
+        if conversation is None:
+            continue
+        payload = {
+            "type": "provider_sync",
+            "resource": binding.resource_type,
+            "topic": event.topic,
+            "state": safe_data,
+        }
+        visible = True
+        if public_reply:
+            payload = {"type": "crm_public_reply", "body": _clean_public_text(public_reply.body)}
+        message = await repo.add_message(
+            conversation,
+            MessageRole.SYSTEM_EVENT,
+            json.dumps(payload, separators=(",", ":"), sort_keys=True),
+            conversation.locale,
+            visible_to_customer=visible,
+        )
+        session.add(
+            WebhookConversationEffect(
+                organization_id=event.organization_id,
+                webhook_event_id=event.id,
+                binding_id=binding.id,
+                conversation_id=conversation.id,
+                logical_key=logical,
+                message_id=message.id,
+            )
+        )
+
+
+async def _sync_ticket_state(
+    session: AsyncSession,
+    event: WebhookEvent,
+    ticket: SupportTicket,
+    bindings: list[ProviderResourceBinding],
+) -> None:
+    local = await session.scalar(
+        select(DbSupportTicket)
+        .where(
+            DbSupportTicket.organization_id == event.organization_id,
+            DbSupportTicket.provider_ref == ticket.external_ref,
+        )
+        .with_for_update()
+    )
+    if local is None:
+        return
+    conversation = await session.scalar(
+        select(Conversation)
+        .where(
+            Conversation.organization_id == event.organization_id,
+            Conversation.id == local.conversation_id,
+        )
+        .with_for_update()
+    )
+    if conversation is None:
+        return
+    if ticket.status in {"resolved", "closed"}:
+        local.status, local.resolved_at = TicketStatus.RESOLVED, ticket.updated_at
+        conversation.status, conversation.ownership_state = ConversationStatus.RESOLVED, "resolved"
+    if ticket.assigned_staff_ref:
+        try:
+            staff_id = UUID(ticket.assigned_staff_ref)
+        except ValueError:
+            return
+        membership = await session.scalar(
+            select(OrganizationMembership).where(
+                OrganizationMembership.organization_id == event.organization_id,
+                OrganizationMembership.staff_user_id == staff_id,
+                OrganizationMembership.status == Status.ACTIVE,
+            )
+        )
+        if membership:
+            local.assigned_staff_id, local.status = staff_id, TicketStatus.IN_PROGRESS
+            conversation.assigned_staff_id, conversation.owner = staff_id, ConversationOwner.STAFF
+            conversation.ownership_state = "staff_active"
+
+
 async def process(
-    session: AsyncSession, settings: Settings, event_id: UUID, *, fail: str | None = None
+    session: AsyncSession,
+    settings: Settings,
+    event_id: UUID,
+    *,
+    fail: str | None = None,
+    commerce: CommerceProviderV1 | None = None,
+    crm: CrmProviderV1 | None = None,
 ) -> str:
     event = await session.get(WebhookEvent, event_id, with_for_update=True)
     if event is None:
@@ -310,7 +485,86 @@ async def process(
         if fail:
             raise RuntimeError(fail)
         payload = json.loads(decrypt(settings, event.encrypted_payload))
-        resource, ref, version, data = safe_projection(payload, event.topic)
+        resource, ref = _resource_identity(payload, event.topic)
+        bindings = list(
+            await session.scalars(
+                select(ProviderResourceBinding)
+                .where(
+                    ProviderResourceBinding.organization_id == event.organization_id,
+                    ProviderResourceBinding.connection_id == event.connection_id,
+                    ProviderResourceBinding.resource_type == resource,
+                    ProviderResourceBinding.external_ref == ref,
+                )
+                .with_for_update()
+            )
+        )
+        if not bindings:
+            event.status, event.safe_error, event.processed_at = (
+                WebhookStatus.PROCESSED,
+                "unassociated",
+                datetime.now(timezone.utc),
+            )
+            await AuditService(session).record(
+                event.organization_id,
+                "worker",
+                "webhook.unassociated",
+                event.status.value,
+                target_type="webhook",
+                target_id=event.id,
+                metadata={"provider": event.provider, "topic": event.topic},
+            )
+            await session.commit()
+            return "unassociated"
+        ownership = {(item.customer_id, item.provider_customer_ref) for item in bindings}
+        if len(ownership) != 1:
+            event.status, event.safe_error, event.processed_at = (
+                WebhookStatus.PROCESSED,
+                "binding_conflict",
+                datetime.now(timezone.utc),
+            )
+            await AuditService(session).record(
+                event.organization_id,
+                "worker",
+                "webhook.quarantined",
+                event.status.value,
+                target_type="webhook",
+                target_id=event.id,
+                metadata={"provider": event.provider, "topic": event.topic},
+            )
+            await session.commit()
+            return "quarantined"
+        context = ProviderContext(
+            organization_id=event.organization_id,
+            actor_ref="webhook-worker",
+            customer_ref=bindings[0].provider_customer_ref,
+            correlation_id=str(event.id),
+        )
+        public_reply = None
+        if resource == "order":
+            authoritative = await (commerce or create_commerce_provider(settings)).get_order(
+                context, ref
+            )
+            version, data, authoritative_time = (
+                authoritative.version,
+                _order_data(authoritative),
+                event.occurred_at or event.received_at,
+            )
+        else:
+            authoritative_ticket = await (crm or create_crm_provider(settings)).get_ticket(
+                context, ref
+            )
+            version, data, authoritative_time = (
+                authoritative_ticket.version,
+                _ticket_data(authoritative_ticket),
+                authoritative_ticket.updated_at,
+            )
+            await _sync_ticket_state(session, event, authoritative_ticket, bindings)
+            if "reply" in event.topic:
+                messages = await (crm or create_crm_provider(settings)).list_ticket_messages(
+                    context, ref
+                )
+                public = [item for item in messages if item.visibility in {"public", "customer"}]
+                public_reply = public[-1] if public else None
         current = await session.scalar(
             select(ProviderProjection)
             .where(
@@ -321,7 +575,7 @@ async def process(
             )
             .with_for_update()
         )
-        occurred = event.occurred_at or event.received_at
+        occurred = authoritative_time
         if current and current.occurred_at >= occurred:
             event.status = WebhookStatus.STALE
             action = "webhook.stale"
@@ -342,6 +596,8 @@ async def process(
                 )
             event.status, event.processed_at = WebhookStatus.PROCESSED, datetime.now(timezone.utc)
             action = "webhook.processed"
+            if "note" not in event.topic:
+                await _append_effects(session, event, bindings, data, version, public_reply)
         event.safe_error = None
         await AuditService(session).record(
             event.organization_id,

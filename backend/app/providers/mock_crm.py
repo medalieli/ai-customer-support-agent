@@ -125,3 +125,11 @@ class MockCrmAdapter:
             json={"body": body, "visibility": visibility},
         )
         return TicketMessage.model_validate(response.json())
+
+    async def list_ticket_messages(
+        self, context: ProviderContext, ticket_ref: str
+    ) -> list[TicketMessage]:
+        response = await self.http.request(
+            "GET", f"/v1/tickets/{ticket_ref}/messages", headers=self._headers(context)
+        )
+        return [TicketMessage.model_validate(item) for item in response.json()]

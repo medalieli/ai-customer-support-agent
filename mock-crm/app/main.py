@@ -108,6 +108,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "ticket.updated",
             "ticket.assigned",
             "ticket.reply",
+            "ticket.note",
             "ticket.resolved",
         ]
         payload: dict[str, object]
@@ -262,5 +263,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return TicketMessage.model_validate(
             store.add_ticket_message(org, ticket_ref, key, payload.body, payload.visibility)
         )
+
+    @app.get("/v1/tickets/{ticket_ref}/messages", response_model=list[TicketMessage])
+    async def ticket_messages(
+        ticket_ref: str, org: Annotated[str, Depends(scope)]
+    ) -> list[TicketMessage]:
+        return [
+            TicketMessage.model_validate(item)
+            for item in store.list_ticket_messages(org, ticket_ref)
+        ]
 
     return app

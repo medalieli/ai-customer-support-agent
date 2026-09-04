@@ -147,6 +147,19 @@ async def _order_status(value: BaseModel, context: ToolContext) -> ToolOutput:
 
     request = OrderStatusInput.model_validate(value)
     order = await context.commerce.resolve_order(context.provider_context(), request.order_number)
+    if context.customer_id and context.conversation_id:
+        from app.services.provider_bindings import bind_resource
+
+        await bind_resource(
+            context.session,
+            context.settings,
+            organization_id=context.organization_id,
+            customer_id=context.customer_id,
+            conversation_id=context.conversation_id,
+            resource_type="order",
+            external_ref=order.external_ref,
+            provider_customer_ref=context.customer_ref,
+        )
     tracking = order.tracking
     events = []
     if tracking:

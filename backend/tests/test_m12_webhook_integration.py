@@ -10,7 +10,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
-from app.domain.models import ProviderConnection, ProviderProjection, WebhookEvent, WebhookStatus
+from app.domain.models import (
+    ProviderConnection,
+    ProviderProjection,
+    WebhookConversationEffect,
+    WebhookEvent,
+    WebhookStatus,
+)
 from app.infrastructure.database import create_database_engine, set_tenant_scope
 from app.seed import ORGANIZATIONS, seed
 from app.services.webhooks import WebhookRejected, accept, encrypt, process
@@ -28,6 +34,7 @@ async def database() -> tuple[AsyncSession, Settings, ProviderConnection]:
     async with factory() as session:
         await seed(session, "synthetic-demo-password")
         await set_tenant_scope(session, ORGANIZATIONS[0].id)
+        await session.execute(delete(WebhookConversationEffect))
         await session.execute(delete(WebhookEvent))
         await session.execute(delete(ProviderProjection))
         connection = await session.scalar(
@@ -146,7 +153,7 @@ async def test_processing_ordering_retry_and_dead_letter(
         "POST",
         "http://test/webhook",
     )
-    assert await process(session, settings, event.id) == "processed"
+    assert await process(session, settings, event.id) == "unassociated"
     older_time = now - timedelta(hours=1)
     older = json.dumps(
         {"id": "order-2", "status": "shipped", "occurred_at": older_time.isoformat()}
@@ -166,7 +173,7 @@ async def test_processing_ordering_retry_and_dead_letter(
         "POST",
         "http://test/webhook",
     )
-    assert await process(session, settings, stale.id) == "stale"
+    assert await process(session, settings, stale.id) == "unassociated"
     failing = json.dumps({"id": "order-3"}).encode()
     failed, _ = await accept(
         session,
@@ -190,4 +197,4 @@ async def test_processing_ordering_retry_and_dead_letter(
     assert failed.status == WebhookStatus.DEAD_LETTER
     failed.status = WebhookStatus.RECEIVED
     await session.commit()
-    assert await process(session, settings, failed.id) == "processed"
+    assert await process(session, settings, failed.id) == "unassociated"

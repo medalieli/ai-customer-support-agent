@@ -491,8 +491,23 @@ async def test_hubspot_ticket_http_contract_only() -> None:
             return httpx.Response(200, json={"results": [ticket]})
         if request.url.path.endswith("/batch/upsert"):
             return httpx.Response(200, json={"results": [ticket]})
+        if request.url.path.endswith("/associations/notes"):
+            return httpx.Response(200, json={"results": [{"id": "message-1"}]})
         if request.url.path.endswith("/notes"):
             return httpx.Response(201, json={"id": "message-1"})
+        if "/objects/notes/message-1" in request.url.path:
+            return httpx.Response(
+                200,
+                json={
+                    "id": "message-1",
+                    "createdAt": now,
+                    "properties": {
+                        "hs_note_body": "Authoritative public reply",
+                        "novacart_visibility": "customer",
+                        "hs_timestamp": now,
+                    },
+                },
+            )
         if request.url.path.endswith("/ticket-1"):
             return httpx.Response(200, json=ticket)
         return httpx.Response(200, json={"results": [ticket]})
@@ -525,6 +540,8 @@ async def test_hubspot_ticket_http_contract_only() -> None:
             context(write=True), "ticket-1", "Customer-visible reply", "customer"
         )
     ).external_ref == "message-1"
+    messages = await adapter.list_ticket_messages(context(), "ticket-1")
+    assert len(messages) == 1 and messages[0].body == "Authoritative public reply"
     assert all(request.url.host == "api.hubapi.com" for request in seen)
     await client.aclose()
 

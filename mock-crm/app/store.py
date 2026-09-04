@@ -420,3 +420,15 @@ class CrmStore:
                 (organization_id, "ticket_message", key, fingerprint, json.dumps(result)),
             )
             return result
+
+    def list_ticket_messages(self, organization_id: str, ticket_ref: str) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            return [
+                dict(row)
+                for row in db.execute(
+                    "SELECT external_ref, ticket_ref, body, visibility, created_at "
+                    "FROM ticket_messages WHERE organization_id=? AND ticket_ref=? "
+                    "ORDER BY created_at, external_ref",
+                    (organization_id, ticket_ref),
+                )
+            ]

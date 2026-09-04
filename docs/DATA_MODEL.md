@@ -1,5 +1,16 @@
 # Data Model
 
+## M12 provider resource bindings
+
+`provider_resource_bindings` is tenant-scoped and joins a trusted `provider_connection` to an opaque
+commerce order or CRM ticket plus authenticated customer and conversation IDs. Composite foreign
+keys prevent mixed-tenant bindings. The uniqueness key permits multiple legitimate conversations
+for one resource while preventing duplicate bindings to the same conversation.
+
+`webhook_conversation_effects` links an inbox event and binding to the resulting system-event
+message. Unique event/binding and binding/logical-fingerprint constraints provide exactly-once
+conversation effects over the inbox's at-least-once processing. Both tables enforce RLS.
+
 ## Principles
 
 UUIDs are internal; provider identifiers are opaque and unique only within `(organization_id, provider, resource_type)`. Tenant-owned tables carry `organization_id`, timestamps and optimistic versions. Foreign keys, repository scoping and (where practical) PostgreSQL row-level security provide defense in depth. Sensitive fields are minimized/encrypted; audit records are append-only. Deletion/retention workflows tombstone references where legal preservation is required.

@@ -106,6 +106,22 @@ due or abandoned claims. Webhook text is data only and never enters prompts, too
 or customer output. Live Shopify/HubSpot calls, notifications, n8n, AI replies, and frontend work
 remain out of scope.
 
+### M12 resource reconciliation hardening
+
+`provider_resource_bindings` records the trusted provider connection, opaque external resource,
+authenticated customer, conversation, and (for commerce) provider customer scope. Bindings are
+created only after a successful authenticated order resolution or authoritative CRM ticket creation.
+One owned resource may bind to multiple conversations. Webhook payload identity fields never create
+or modify a binding.
+
+The worker requires a binding before re-fetching through `CommerceProviderV1` or `CrmProviderV1`.
+It projects only normalized authoritative fields and appends structured `system_event` messages.
+`webhook_conversation_effects` deduplicates both provider event/binding pairs and logical normalized
+effects. CRM owner IDs are accepted only when they resolve to an active membership in the bound
+tenant. Public replies are fetched from CRM and whitespace/control sanitized; internal notes are
+never copied into a customer-visible message. Missing bindings finish as `unassociated` without a
+projection or guessed conversation.
+
 M1 implements the worker boundary with ARQ, an async Redis-backed Python worker shared with the FastAPI settings package. Its only M1 job is a health-verification probe; durable webhook jobs and the PostgreSQL inbox remain M11 scope. See ADR-010.
 
 ## Reliability limits

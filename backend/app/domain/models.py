@@ -519,6 +519,61 @@ class ProviderProjection(Base, TimestampMixin):
     safe_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
+class ProviderResourceBinding(Base, TimestampMixin):
+    __tablename__ = "provider_resource_bindings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "connection_id"],
+            ["provider_connections.organization_id", "provider_connections.id"],
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "customer_id"], ["customers.organization_id", "customers.id"]
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "conversation_id"],
+            ["conversations.organization_id", "conversations.id"],
+        ),
+        UniqueConstraint("connection_id", "resource_type", "external_ref", "conversation_id"),
+        UniqueConstraint("organization_id", "id"),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    connection_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
+    resource_type: Mapped[str] = mapped_column(String(40))
+    external_ref: Mapped[str] = mapped_column(String(160))
+    customer_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
+    provider_customer_ref: Mapped[str | None] = mapped_column(String(160))
+
+
+class WebhookConversationEffect(Base):
+    __tablename__ = "webhook_conversation_effects"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "webhook_event_id"],
+            ["webhook_events.organization_id", "webhook_events.id"],
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "binding_id"],
+            ["provider_resource_bindings.organization_id", "provider_resource_bindings.id"],
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "conversation_id"],
+            ["conversations.organization_id", "conversations.id"],
+        ),
+        UniqueConstraint("webhook_event_id", "binding_id"),
+        UniqueConstraint("binding_id", "logical_key"),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    webhook_event_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    binding_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    logical_key: Mapped[str] = mapped_column(String(64))
+    message_id: Mapped[UUID | None] = mapped_column(ForeignKey("messages.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class KnowledgeDocument(Base, TimestampMixin):
     __tablename__ = "knowledge_documents"
     __table_args__ = (
