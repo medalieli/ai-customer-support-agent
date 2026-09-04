@@ -346,6 +346,31 @@ class PendingAction(Base, TimestampMixin):
     failure_code: Mapped[str | None] = mapped_column(String(80))
 
 
+class ConsentRecord(Base):
+    __tablename__ = "consent_records"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "customer_id"], ["customers.organization_id", "customers.id"]
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "conversation_id"],
+            ["conversations.organization_id", "conversations.id"],
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "pending_action_id"],
+            ["pending_actions.organization_id", "pending_actions.id"],
+        ),
+        UniqueConstraint("organization_id", "pending_action_id"),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    customer_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    pending_action_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    purpose: Mapped[str] = mapped_column(String(80))
+    consented_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class RefundDecisionRecord(Base):
     """Immutable inputs/result for a deterministic refund evaluation."""
 

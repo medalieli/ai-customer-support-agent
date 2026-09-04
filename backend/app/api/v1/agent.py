@@ -27,6 +27,13 @@ from app.repositories.conversations import ConversationRepository
 from app.services.address_actions import AddressActionError, AddressActionService, AddressProposal
 from app.services.auth import AuthorizationError, ResourceNotFoundError
 from app.services.refunds import RefundError, RefundProposal, RefundService
+from app.services.sales_leads import (
+    OpenAILeadExtractor,
+    SalesLeadError,
+    SalesLeadProposal,
+    SalesLeadService,
+    genuine_sales_intent,
+)
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -41,6 +48,8 @@ class AgentRunResponse(BaseModel):
     duplicate: bool
     checkpoint_version: int
     confirmation: dict[str, object] | None = None
+    result: dict[str, object] | None = None
+    message: str | None = None
 
 
 class ResumeRequest(BaseModel):
@@ -52,6 +61,17 @@ class ResumeRequest(BaseModel):
 
 
 def _confirmation(proposal: object | None) -> dict[str, object] | None:
+    if isinstance(proposal, SalesLeadProposal):
+        return {
+            "action_id": str(proposal.action_id),
+            "action_hash": proposal.action_hash,
+            "confirmation_token": proposal.confirmation_token,
+            "expires_at": proposal.expires_at.isoformat(),
+            "fields_to_store": proposal.preview,
+            "purpose": "Store this sales inquiry in the CRM for a sales response.",
+            "confirmation_required": True,
+            "no_automatic_outreach": True,
+        }
     if isinstance(proposal, RefundProposal):
         if proposal.action_id is None:
             return None
@@ -131,6 +151,7 @@ async def submit_message(
             status=run.status,
             duplicate=True,
             checkpoint_version=thread.checkpoint_version,
+            result=run.state_json or None,
         )
     sensitive_address_turn = looks_like_address_change(payload.content)
     sensitive_refund_turn = bool(
@@ -138,11 +159,14 @@ async def submit_message(
             r"\b(?:refund|rembours|return request|demande de retour)\b", payload.content, re.I
         )
     )
+    sensitive_sales_turn = genuine_sales_intent(payload.content)
     stored_content = (
         "[shipping address change request redacted]"
         if sensitive_address_turn
         else "[refund request details redacted]"
         if sensitive_refund_turn
+        else "[sales inquiry details redacted]"
+        if sensitive_sales_turn
         else payload.content
     )
     await conversations.add_message(
@@ -182,6 +206,15 @@ async def submit_message(
         conversation_id=conversation_id,
         run_id=run.id,
         request_message=payload.content,
+        lead_extractor=(
+            getattr(request.app.state, "agent_lead_extractor_factory", OpenAILeadExtractor)(
+                settings
+            )
+            if sensitive_sales_turn
+            else None
+        ),
+        verified_name=customer.display_name,
+        verified_email=customer.email,
     )
     state = AgentState(
         thread_id=str(thread.id),
@@ -231,7 +264,9 @@ async def submit_message(
         status=run.status,
         duplicate=False,
         checkpoint_version=thread.checkpoint_version,
-        confirmation=_confirmation(context.address_proposal or context.refund_proposal),
+        confirmation=_confirmation(
+            context.address_proposal or context.refund_proposal or context.lead_proposal
+        ),
     )
 
 
@@ -274,6 +309,7 @@ async def resume_thread(
                 status=existing_resume.status,
                 duplicate=True,
                 checkpoint_version=thread.checkpoint_version,
+                result=existing_resume.state_json or None,
             )
     if thread is None or thread.checkpoint_version != payload.checkpoint_version:
         from fastapi import HTTPException
@@ -296,6 +332,7 @@ async def resume_thread(
             status=run.status,
             duplicate=True,
             checkpoint_version=thread.checkpoint_version,
+            result=run.state_json or None,
         )
     customer = await session.scalar(
         select(Customer).where(
@@ -326,14 +363,15 @@ async def resume_thread(
             service: Any
             if pending.action_type == "refund_request":
                 service = RefundService(session, settings, create_commerce_provider(settings))
+            elif pending.action_type == "sales_lead":
+                service = SalesLeadService(session, settings, create_crm_provider(settings))
             else:
                 service = AddressActionService(
                     session, settings, create_commerce_provider(settings)
                 )
-            outcome = await service.decide(
+            common = dict(
                 organization_id=principal.organization_id,
                 customer_id=principal.subject_id,
-                customer_ref=customer.provider_customer_ref,
                 session_id=principal.session_id,
                 conversation_id=conversation_id,
                 action_id=action_id,
@@ -341,7 +379,13 @@ async def resume_thread(
                 decision=decision,
                 correlation_id=str(run.id),
             )
-        except (AddressActionError, RefundError) as exc:
+            if pending.action_type == "sales_lead":
+                outcome = await service.decide(**common)
+            else:
+                outcome = await service.decide(
+                    customer_ref=customer.provider_customer_ref, **common
+                )
+        except (AddressActionError, RefundError, SalesLeadError) as exc:
             from fastapi import HTTPException
 
             run.status = "failed"
@@ -356,6 +400,20 @@ async def resume_thread(
             "status": outcome.status,
             "reason_code": outcome.reason_code,
         }
+        if pending.action_type == "sales_lead":
+            run.state_json.update(
+                {
+                    key: value
+                    for key, value in {
+                        "contact_ref": outcome.contact_ref,
+                        "lead_ref": outcome.lead_ref,
+                        "note_ref": outcome.note_ref,
+                        "contact_operation": outcome.contact_operation,
+                        "lead_operation": outcome.lead_operation,
+                    }.items()
+                    if value is not None
+                }
+            )
         thread.status = outcome.status
         thread.interrupt_reason = None
         thread.checkpoint_version += 1
@@ -370,6 +428,21 @@ async def resume_thread(
             status=outcome.status,
             duplicate=False,
             checkpoint_version=thread.checkpoint_version,
+            result=run.state_json,
+            message=(
+                "La demande commerciale a été enregistrée dans le CRM. "
+                "Aucun message marketing n’a été envoyé."
+                if pending.action_type == "sales_lead"
+                and outcome.status == "action_completed"
+                and conversation.locale == "fr"
+                else "The sales inquiry was saved in the CRM. No marketing message was sent."
+                if pending.action_type == "sales_lead" and outcome.status == "action_completed"
+                else "La soumission CRM a été refusée; aucune donnée n’a été écrite."
+                if pending.action_type == "sales_lead" and conversation.locale == "fr"
+                else "CRM submission was denied; no data was written."
+                if pending.action_type == "sales_lead"
+                else None
+            ),
         )
 
     async def emit(event_type: str, data: dict[str, object]) -> None:

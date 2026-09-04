@@ -1,5 +1,18 @@
 # M2 HTTP API
 
+## M10 consented CRM lead workflow
+
+Authenticated customer messages sent to `POST /api/v1/agent/threads/{conversation_id}/messages`
+may return `confirmation_required` with an exact `fields_to_store` preview, purpose, opaque action
+ID/hash, single-use confirmation token, and expiry. Sales inquiry content is redacted from durable
+messages and graph state. `POST /api/v1/agent/threads/{conversation_id}/resume` requires the current
+checkpoint version, action ID, token, and an explicit English or French approve/deny decision.
+
+Approval returns normalized contact, lead, and note references plus `created|updated` operation
+status. Denial returns no CRM references. Tenant/customer/session/thread binding, encrypted payload,
+optimistic lead versioning, stable provider idempotency keys, and timeout reconciliation apply.
+Local execution is restricted to `CRM_PROVIDER=mock`; HubSpot has mocked contract coverage only.
+
 All M2 identity and conversation routes are under `/api/v1`. Errors use
 `{"error":{"code":"...","message":"..."}}`; authentication failures are `401`, explicit
 role failures are `403`, and inaccessible conversations are the same safe `404` whether absent or

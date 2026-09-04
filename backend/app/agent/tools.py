@@ -14,6 +14,7 @@ from app.knowledge.retrieval import retrieve_passages
 from app.providers.errors import ProviderError
 from app.providers.models import ProviderContext, ProviderErrorCode
 from app.providers.ports import CommerceProviderV1, CrmProviderV1
+from app.services.sales_leads import LeadExtractor
 
 
 class Permission(str, Enum):
@@ -92,6 +93,10 @@ class ToolContext:
     request_message: str | None = None
     address_proposal: object | None = None
     refund_proposal: object | None = None
+    lead_proposal: object | None = None
+    lead_extractor: LeadExtractor | None = None
+    verified_name: str | None = None
+    verified_email: str | None = None
 
     def provider_context(self) -> ProviderContext:
         return ProviderContext(

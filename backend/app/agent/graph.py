@@ -31,6 +31,7 @@ from app.services.refunds import (
     extract_refund_order_number,
     parse_refund_intent,
 )
+from app.services.sales_leads import SalesLeadError, SalesLeadService, genuine_sales_intent
 
 EventEmitter = Callable[[str, dict[str, object]], Awaitable[None]]
 
@@ -319,14 +320,73 @@ class AgentGraph:
                 "citations": citations,
                 "step_count": state.step_count + 1,
             }
-        write_map = {
-            IntentLabel.SALES_LEAD: "upsert_sales_lead",
-        }
-        for label, name in write_map.items():
-            if label in labels:
-                selected.append(
-                    SelectedTool(name=name, arguments={"request_summary": message[:500]})
+        if IntentLabel.SALES_LEAD in labels:
+            if not genuine_sales_intent(message):
+                labels.remove(IntentLabel.SALES_LEAD)
+            elif not all(
+                (
+                    self.context.customer_id,
+                    self.context.session_id,
+                    self.context.conversation_id,
+                    self.context.run_id,
+                    self.context.verified_name,
+                    self.context.verified_email,
                 )
+            ):
+                return {"status": "failed", "escalation_reason": "trusted_context_missing"}
+            elif self.context.lead_extractor is None:
+                return {"status": "failed", "escalation_reason": "lead_extractor_unavailable"}
+            else:
+                try:
+                    extracted = await self.context.lead_extractor.extract(message)
+                    sales_proposal = await SalesLeadService(
+                        self.context.session, self.settings, self.context.crm
+                    ).propose(
+                        organization_id=self.context.organization_id,
+                        customer_id=cast(UUID, self.context.customer_id),
+                        session_id=cast(UUID, self.context.session_id),
+                        conversation_id=cast(UUID, self.context.conversation_id),
+                        run_id=cast(UUID, self.context.run_id),
+                        verified_name=cast(str, self.context.verified_name),
+                        verified_email=cast(str, self.context.verified_email),
+                        fields=extracted,
+                    )
+                except SalesLeadError as exc:
+                    return {
+                        "status": "clarification_required",
+                        "escalation_reason": exc.code,
+                        "step_count": state.step_count + 1,
+                    }
+                except Exception:
+                    return {
+                        "status": "failed",
+                        "escalation_reason": "lead_extraction_failed",
+                        "step_count": state.step_count + 1,
+                    }
+                self.context.lead_proposal = sales_proposal
+                await self.emit(
+                    "confirmation_required",
+                    {"status": "confirmation_required", "action_type": "sales_lead"},
+                )
+                combined: dict[str, object] = {}
+                if selected:
+                    tool_update = await self._execute_tools(
+                        state.model_copy(update={"selected_tools": selected})
+                    )
+                    if tool_update.get("status") != "escalation_required":
+                        composed = await self._compose(state.model_copy(update=tool_update))
+                        combined = {
+                            key: composed[key]
+                            for key in ("messages", "citations", "sanitized_results")
+                            if key in composed
+                        }
+                return {
+                    **combined,
+                    "status": "confirmation_required",
+                    "pending_action_id": str(sales_proposal.action_id),
+                    "pending_action_hash": sales_proposal.action_hash,
+                    "step_count": state.step_count + 1,
+                }
         if labels & {IntentLabel.HUMAN_HELP, IntentLabel.UNSUPPORTED}:
             return {
                 "selected_tools": selected,
@@ -515,7 +575,24 @@ class AgentGraph:
         if state.status == "clarification_required":
             address_missing = state.escalation_reason == "missing_or_ambiguous_address"
             refund_missing = (state.escalation_reason or "").startswith("missing_")
-            if refund_missing:
+            sales_missing = state.escalation_reason in {
+                "missing_lead_information",
+                "missing_or_invalid_contact_method",
+                "invalid_budget_range",
+                "invalid_timeline",
+            }
+            if sales_missing:
+                parts.append(
+                    "Veuillez fournir l’entreprise, le produit/service concerné, un bref besoin "
+                    "professionnel et le moyen de contact préféré (e-mail, téléphone ou "
+                    "appel vidéo). "
+                    "Le budget et le calendrier sont facultatifs."
+                    if locale == "fr"
+                    else "Please provide the company, product/service interest, a short business "
+                    "need, and preferred contact method (email, phone, or video call). Budget and "
+                    "timeline are optional."
+                )
+            elif refund_missing:
                 missing = (
                     (state.escalation_reason or "missing_information")
                     .removeprefix("missing_")

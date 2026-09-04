@@ -9,6 +9,8 @@ from app.providers.models import (
     ConversationNote,
     ProviderContext,
     ProviderErrorCode,
+    SalesLead,
+    SalesLeadUpsert,
 )
 
 
@@ -97,6 +99,74 @@ class HubSpotAdapter:
             external_ref=raw["id"], contact_ref=contact_ref, body=body, created_at=timestamp
         )
 
+    async def find_lead(self, context: ProviderContext, contact_ref: str) -> SalesLead | None:
+        response = await self.http.request(
+            "POST",
+            "/crm/v3/objects/leads/search",
+            retry_safe=True,
+            headers={"X-Correlation-ID": context.correlation_id},
+            json={
+                "filterGroups": [
+                    {
+                        "filters": [
+                            {
+                                "propertyName": "hs_associated_contact_id",
+                                "operator": "EQ",
+                                "value": contact_ref,
+                            }
+                        ]
+                    }
+                ],
+                "properties": [
+                    "hs_associated_contact_id",
+                    "novacart_interest",
+                    "novacart_business_need",
+                    "novacart_budget_range",
+                    "novacart_timeline",
+                    "novacart_preferred_contact_method",
+                ],
+                "limit": 1,
+            },
+        )
+        results = response.json().get("results", [])
+        return self._lead(results[0]) if results else None
+
+    async def upsert_lead(self, context: ProviderContext, lead: SalesLeadUpsert) -> SalesLead:
+        if not context.idempotency_key:
+            raise ProviderError(ProviderErrorCode.VALIDATION)
+        properties = {
+            "hs_associated_contact_id": lead.contact_ref,
+            "novacart_interest": lead.interest,
+            "novacart_business_need": lead.business_need,
+            "novacart_preferred_contact_method": lead.preferred_contact_method,
+        }
+        if lead.budget_range is not None:
+            properties["novacart_budget_range"] = lead.budget_range
+        if lead.timeline is not None:
+            properties["novacart_timeline"] = lead.timeline
+        headers = {"X-Correlation-ID": context.correlation_id}
+        if lead.version:
+            headers["If-Match"] = lead.version
+        response = await self.http.request(
+            "POST",
+            "/crm/v3/objects/leads/batch/upsert",
+            headers=headers,
+            json={
+                "inputs": [
+                    {
+                        "id": lead.contact_ref,
+                        "idProperty": "hs_associated_contact_id",
+                        "objectWriteTraceId": context.idempotency_key,
+                        "properties": properties,
+                    }
+                ]
+            },
+        )
+        results = response.json().get("results", [])
+        if not results:
+            raise ProviderError(ProviderErrorCode.UNAVAILABLE)
+        return self._lead(results[0])
+
     @staticmethod
     def _contact(raw: dict[str, Any]) -> Contact:
         properties = raw.get("properties") or {}
@@ -109,6 +179,23 @@ class HubSpotAdapter:
             locale=properties.get("hs_language") or None,
             company=properties.get("company") or None,
             provider_status="archived" if raw.get("archived") else "active",
+            version=str(raw.get("updatedAt") or raw.get("createdAt") or "unknown"),
+            created_at=raw["createdAt"],
+            updated_at=raw.get("updatedAt") or raw["createdAt"],
+        )
+
+    @staticmethod
+    def _lead(raw: dict[str, Any]) -> SalesLead:
+        p = raw.get("properties") or {}
+        return SalesLead(
+            external_ref=raw["id"],
+            contact_ref=p["hs_associated_contact_id"],
+            interest=p.get("novacart_interest") or "",
+            business_need=p.get("novacart_business_need") or "",
+            budget_range=p.get("novacart_budget_range") or None,
+            timeline=p.get("novacart_timeline") or None,
+            preferred_contact_method=p.get("novacart_preferred_contact_method") or "email",
+            status="archived" if raw.get("archived") else "open",
             version=str(raw.get("updatedAt") or raw.get("createdAt") or "unknown"),
             created_at=raw["createdAt"],
             updated_at=raw.get("updatedAt") or raw["createdAt"],

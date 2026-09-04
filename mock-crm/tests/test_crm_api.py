@@ -91,6 +91,63 @@ async def test_idempotent_upsert_note_and_conflicts(client: AsyncClient) -> None
         )
     ).json() == note.json()
 
+    lead_payload = {
+        "contact_ref": ref,
+        "interest": "Enterprise analytics",
+        "business_need": "Equip a distributed support team.",
+        "budget_range": "10k_50k",
+        "timeline": "1_3_months",
+        "preferred_contact_method": "email",
+    }
+    lead_headers = {**headers(), "Idempotency-Key": "lead-key-001"}
+    lead = await client.put(f"/v1/contacts/{ref}/lead", headers=lead_headers, json=lead_payload)
+    assert lead.status_code == 200
+    assert (
+        await client.put(f"/v1/contacts/{ref}/lead", headers=lead_headers, json=lead_payload)
+    ).json() == lead.json()
+    assert (await client.get(f"/v1/contacts/{ref}/lead", headers=headers())).json() == lead.json()
+    conflict = await client.put(
+        f"/v1/contacts/{ref}/lead",
+        headers={**headers(), "Idempotency-Key": "lead-key-002"},
+        json={**lead_payload, "business_need": "Changed"},
+    )
+    assert conflict.status_code == 409
+    updated = await client.put(
+        f"/v1/contacts/{ref}/lead",
+        headers={
+            **headers(),
+            "Idempotency-Key": "lead-key-003",
+            "If-Match": lead.json()["version"],
+        },
+        json={**lead_payload, "business_need": "Explicitly changed need."},
+    )
+    assert updated.status_code == 200 and updated.json()["version"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_lead_validation_isolation_and_not_found(client: AsyncClient) -> None:
+    assert (await client.get("/v1/contacts/absent/lead", headers=headers())).status_code == 204
+    payload = {
+        "contact_ref": "absent",
+        "interest": "Demo",
+        "business_need": "Evaluate",
+        "preferred_contact_method": "email",
+    }
+    assert (
+        await client.put(
+            "/v1/contacts/absent/lead",
+            headers={**headers(), "Idempotency-Key": "lead-missing"},
+            json=payload,
+        )
+    ).status_code == 404
+    assert (
+        await client.put(
+            "/v1/contacts/other/lead",
+            headers={**headers(), "Idempotency-Key": "lead-binding"},
+            json=payload,
+        )
+    ).status_code == 422
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(

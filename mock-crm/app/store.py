@@ -31,6 +31,11 @@ class CrmStore:
               organization_id TEXT NOT NULL, external_ref TEXT NOT NULL, contact_ref TEXT NOT NULL,
               body TEXT NOT NULL, created_at TEXT NOT NULL,
               PRIMARY KEY (organization_id, external_ref));
+            CREATE TABLE IF NOT EXISTS leads (
+              organization_id TEXT NOT NULL, external_ref TEXT NOT NULL, contact_ref TEXT NOT NULL,
+              data TEXT NOT NULL, version INTEGER NOT NULL, created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL, PRIMARY KEY (organization_id, external_ref),
+              UNIQUE (organization_id, contact_ref));
             CREATE TABLE IF NOT EXISTS idempotency (
               organization_id TEXT NOT NULL, operation TEXT NOT NULL, key TEXT NOT NULL,
               fingerprint TEXT NOT NULL, response TEXT NOT NULL,
@@ -102,6 +107,82 @@ class CrmStore:
                 (organization_id, email),
             ).fetchone()
             return self._contact(row) if row else None
+
+    def find_lead(self, organization_id: str, contact_ref: str) -> dict[str, Any] | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT * FROM leads WHERE organization_id=? AND contact_ref=?",
+                (organization_id, contact_ref),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                **json.loads(row["data"]),
+                "external_ref": row["external_ref"],
+                "status": "open",
+                "version": str(row["version"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+
+    def upsert_lead(
+        self, organization_id: str, key: str, payload: dict[str, Any], expected_version: str | None
+    ) -> dict[str, Any]:
+        fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            replay = db.execute(
+                "SELECT * FROM idempotency WHERE organization_id=? AND operation='lead' AND key=?",
+                (organization_id, key),
+            ).fetchone()
+            if replay:
+                if replay["fingerprint"] != fingerprint:
+                    raise CrmError(409, "idempotency_conflict", "The idempotency key was reused.")
+                return dict(json.loads(replay["response"]))
+            if not db.execute(
+                "SELECT 1 FROM contacts WHERE organization_id=? AND external_ref=?",
+                (organization_id, payload["contact_ref"]),
+            ).fetchone():
+                raise CrmError(404, "not_found", "The contact was not found.")
+            existing = db.execute(
+                "SELECT * FROM leads WHERE organization_id=? AND contact_ref=?",
+                (organization_id, payload["contact_ref"]),
+            ).fetchone()
+            if existing and expected_version != str(existing["version"]):
+                raise CrmError(409, "version_conflict", "The lead changed.")
+            now = datetime.now(timezone.utc).isoformat()
+            ref = (
+                existing["external_ref"]
+                if existing
+                else str(uuid5(NAMESPACE_URL, f"{organization_id}:lead:{payload['contact_ref']}"))
+            )
+            version = int(existing["version"]) + 1 if existing else 1
+            created = existing["created_at"] if existing else now
+            db.execute(
+                "INSERT OR REPLACE INTO leads VALUES (?,?,?,?,?,?,?)",
+                (
+                    organization_id,
+                    ref,
+                    payload["contact_ref"],
+                    json.dumps(payload),
+                    version,
+                    created,
+                    now,
+                ),
+            )
+            result = {
+                **payload,
+                "external_ref": ref,
+                "status": "open",
+                "version": str(version),
+                "created_at": created,
+                "updated_at": now,
+            }
+            db.execute(
+                "INSERT INTO idempotency VALUES (?,?,?,?,?)",
+                (organization_id, "lead", key, fingerprint, json.dumps(result)),
+            )
+            return result
 
     def upsert(self, organization_id: str, key: str, payload: dict[str, Any]) -> dict[str, Any]:
         fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

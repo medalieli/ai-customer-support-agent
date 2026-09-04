@@ -6,6 +6,8 @@ from app.providers.models import (
     ConversationNote,
     ProviderContext,
     ProviderErrorCode,
+    SalesLead,
+    SalesLeadUpsert,
 )
 
 
@@ -41,6 +43,26 @@ class MockCrmAdapter:
             json=contact.model_dump(mode="json"),
         )
         return Contact.model_validate(response.json())
+
+    async def find_lead(self, context: ProviderContext, contact_ref: str) -> SalesLead | None:
+        response = await self.http.request(
+            "GET", f"/v1/contacts/{contact_ref}/lead", headers=self._headers(context)
+        )
+        if response.status_code == 204:
+            return None
+        return SalesLead.model_validate(response.json())
+
+    async def upsert_lead(self, context: ProviderContext, lead: SalesLeadUpsert) -> SalesLead:
+        response = await self.http.request(
+            "PUT",
+            f"/v1/contacts/{lead.contact_ref}/lead",
+            headers={
+                **self._headers(context, write=True),
+                **({"If-Match": lead.version} if lead.version else {}),
+            },
+            json=lead.model_dump(mode="json", exclude={"version"}),
+        )
+        return SalesLead.model_validate(response.json())
 
     async def create_conversation_note(
         self, context: ProviderContext, contact_ref: str, body: str

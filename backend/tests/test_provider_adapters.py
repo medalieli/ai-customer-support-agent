@@ -14,7 +14,14 @@ from app.providers.http import ProviderHttpClient
 from app.providers.hubspot import HubSpotAdapter
 from app.providers.mock_commerce import MockCommerceAdapter
 from app.providers.mock_crm import MockCrmAdapter
-from app.providers.models import Address, ContactUpsert, Money, ProviderContext, ProviderErrorCode
+from app.providers.models import (
+    Address,
+    ContactUpsert,
+    Money,
+    ProviderContext,
+    ProviderErrorCode,
+    SalesLeadUpsert,
+)
 from app.providers.shopify import ShopifyAdapter
 
 ORG = UUID("10000000-0000-0000-0000-000000000001")
@@ -378,10 +385,40 @@ async def test_mock_and_hubspot_crm_normalized_contract() -> None:
     assert (
         await mock.create_conversation_note(context(write=True), "contact-1", "Summary")
     ).external_ref == "note-1"
+    sales = SalesLeadUpsert(
+        contact_ref="contact-1",
+        interest="Enterprise API",
+        business_need="Scale support",
+        preferred_contact_method="email",
+    )
+    assert await mock.find_lead(context(), "contact-1") is None
+    with pytest.raises(ProviderError, match="validation"):
+        await mock.upsert_lead(context(), sales)
+    assert (await mock.upsert_lead(context(write=True), sales)).external_ref == "contact-1"
 
     async def hub_handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("search"):
             return httpx.Response(200, json={"results": []})
+        if "/leads/" in request.url.path:
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "id": "lead-1",
+                            "createdAt": now,
+                            "updatedAt": now,
+                            "archived": False,
+                            "properties": {
+                                "hs_associated_contact_id": "contact-1",
+                                "novacart_interest": "Enterprise API",
+                                "novacart_business_need": "Scale support",
+                                "novacart_preferred_contact_method": "email",
+                            },
+                        }
+                    ]
+                },
+            )
         if request.url.path.endswith("upsert"):
             return httpx.Response(
                 200,
@@ -421,6 +458,10 @@ async def test_mock_and_hubspot_crm_normalized_contract() -> None:
     assert (
         await hub.create_conversation_note(context(write=True), "contact-1", "Summary")
     ).external_ref == "note-1"
+    assert await hub.find_lead(context(), "contact-1") is None
+    with pytest.raises(ProviderError, match="validation"):
+        await hub.upsert_lead(context(), sales)
+    assert (await hub.upsert_lead(context(write=True), sales)).external_ref == "lead-1"
     await mock_client.aclose()
     await hub_client.aclose()
 

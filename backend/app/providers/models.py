@@ -104,6 +104,30 @@ class ContactUpsert(BaseModel):
     company: str | None = None
 
 
+class SalesLead(BaseModel):
+    external_ref: str
+    contact_ref: str
+    interest: str
+    business_need: str
+    budget_range: str | None = None
+    timeline: str | None = None
+    preferred_contact_method: str
+    status: str = "open"
+    version: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class SalesLeadUpsert(BaseModel):
+    contact_ref: str
+    interest: str
+    business_need: str
+    budget_range: str | None = None
+    timeline: str | None = None
+    preferred_contact_method: str
+    version: str | None = None
+
+
 class ConversationNote(BaseModel):
     external_ref: str
     contact_ref: str

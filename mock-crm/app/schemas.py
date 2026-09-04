@@ -29,3 +29,20 @@ class Note(BaseModel):
     contact_ref: str
     body: str
     created_at: datetime
+
+
+class LeadUpsert(BaseModel):
+    contact_ref: str = Field(min_length=1, max_length=160)
+    interest: str = Field(min_length=2, max_length=200)
+    business_need: str = Field(min_length=2, max_length=1000)
+    budget_range: str | None = Field(default=None, max_length=80)
+    timeline: str | None = Field(default=None, max_length=80)
+    preferred_contact_method: str = Field(pattern=r"^(email|phone|video_call)$")
+
+
+class Lead(LeadUpsert):
+    external_ref: str
+    status: str = "open"
+    version: str
+    created_at: datetime
+    updated_at: datetime

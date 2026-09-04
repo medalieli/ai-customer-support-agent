@@ -9,6 +9,8 @@ from app.providers.models import (
     Order,
     ProviderContext,
     RefundRequest,
+    SalesLead,
+    SalesLeadUpsert,
     Tracking,
 )
 
@@ -28,6 +30,8 @@ class CommerceProviderV1(Protocol):
 class CrmProviderV1(Protocol):
     async def find_contact(self, context: ProviderContext, email: str) -> Contact | None: ...
     async def upsert_contact(self, context: ProviderContext, contact: ContactUpsert) -> Contact: ...
+    async def find_lead(self, context: ProviderContext, contact_ref: str) -> SalesLead | None: ...
+    async def upsert_lead(self, context: ProviderContext, lead: SalesLeadUpsert) -> SalesLead: ...
     async def create_conversation_note(
         self, context: ProviderContext, contact_ref: str, body: str
     ) -> ConversationNote: ...

@@ -14,7 +14,7 @@ Status vocabulary: `COMPLETE`, `PLANNED`, `BLOCKED`. A milestone is complete onl
 | M7 | COMPLETE | Grounded FAQ and live order support | Validated M4 citation receipts, bilingual Responses generation, tenant/customer-scoped public order resolution, combined read-only routing, and fail-closed grounding tests pass. |
 | M8 | COMPLETE | Confirmed shipping-address changes | Strict EN/FR collection, encrypted tenant-scoped pending actions, durable confirmation interrupt, version revalidation, mock-provider idempotency/reconciliation, immutable audit, PII sink checks, restart persistence, and real OpenAI demonstrations pass. |
 | M9 | COMPLETE | Policy-grounded refund workflow | Version-bound deterministic eligibility, validated policy citations, durable confirmation, mock-only idempotent refund requests, manual review, audit, EN/FR and restart gates pass. |
-| M10 | PLANNED | Human escalation and staff console | Ticket summary, interrupt, RBAC takeover/reply/resolve/return-to-AI and audit flows pass. |
+| M10 | COMPLETE | Consented sales-lead capture and CRM synchronization | Strict lead extraction, verified identity, encrypted preview/confirmation, mock CRM contact/lead/note deduplication, bilingual and isolation/restart gates pass; no live HubSpot calls. |
 | M11 | PLANNED | Webhooks and background jobs | Signature verification, durable inbox, deduplication, retries/DLQ and order projection updates pass. |
 | M12 | PLANNED | Shopify live validation | Credential-gated development-store validation of the M5 adapter passes with synthetic reads/address updates; no real refunds. |
 | M13 | PLANNED | HubSpot live validation | Credential-gated developer-test-account validation of the M5 adapter passes with synthetic contacts, notes and cleanup. |

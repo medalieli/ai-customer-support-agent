@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, Header, Query, Response
 
 from app.config import Settings, get_settings
 from app.errors import CrmError, register_handlers
-from app.schemas import Contact, ContactUpsert, Note, NoteCreate
+from app.schemas import Contact, ContactUpsert, Lead, LeadUpsert, Note, NoteCreate
 from app.store import CrmStore
 
 
@@ -121,5 +121,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not key:
             raise CrmError(422, "validation", "Idempotency-Key is required.")
         return Note.model_validate(store.add_note(org, contact_ref, key, payload.body))
+
+    @app.get("/v1/contacts/{contact_ref}/lead", response_model=Lead | None)
+    async def find_lead(
+        contact_ref: str,
+        org: Annotated[str, Depends(scope)],
+        checked: Annotated[None, Depends(failure)],
+        response: Response,
+    ) -> Lead | None:
+        del checked
+        result = store.find_lead(org, contact_ref)
+        if result is None:
+            response.status_code = 204
+            return None
+        return Lead.model_validate(result)
+
+    @app.put("/v1/contacts/{contact_ref}/lead", response_model=Lead)
+    async def upsert_lead(
+        contact_ref: str,
+        payload: LeadUpsert,
+        org: Annotated[str, Depends(scope)],
+        checked: Annotated[None, Depends(failure)],
+        key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        version: Annotated[str | None, Header(alias="If-Match")] = None,
+    ) -> Lead:
+        del checked
+        if not key or payload.contact_ref != contact_ref:
+            raise CrmError(422, "validation", "Valid idempotency and contact binding are required.")
+        return Lead.model_validate(
+            store.upsert_lead(org, key, payload.model_dump(mode="json"), version)
+        )
 
     return app
