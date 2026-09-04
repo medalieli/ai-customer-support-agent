@@ -1,18 +1,10 @@
-import { ApiStatus } from "@/components/api-status";
-
-export default function Home() {
-  return (
-    <main>
-      <section className="hero" aria-labelledby="page-title">
-        <p className="eyebrow">NovaCart Engineering</p>
-        <h1 id="page-title">Customer support platform foundation</h1>
-        <p className="summary">
-          The API, worker, PostgreSQL, pgvector, and Redis foundation is ready for later
-          milestones. Customer chat and support workflows are intentionally not implemented yet.
-        </p>
-        <ApiStatus />
-      </section>
-      <footer>Milestone M1 · Mock providers · Synthetic data only</footer>
-    </main>
-  );
+"use client";
+import { FormEvent, useEffect, useState } from "react";
+import { api, ApiProblem, Identity } from "@/lib/api";
+type Persona = { persona_key: string; display_name: string; locale: string; organization_slug: string };
+export default function Login() {
+  const [personas, setPersonas] = useState<Persona[]>([]), [mode, setMode] = useState<"customer" | "staff">("customer"), [error, setError] = useState("");
+  useEffect(() => { api<Identity>("/auth/me").then((me) => location.assign(me.kind === "staff" ? "/staff" : "/chat")).catch(() => api<Persona[]>("/auth/demo-personas").then(setPersonas).catch(() => undefined)); }, []);
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setError(""); const data = new FormData(event.currentTarget); try { const me = mode === "customer" ? await api<Identity>("/auth/demo-login", { method: "POST", body: JSON.stringify({ organization_slug: data.get("organization"), persona_key: data.get("persona") }) }) : await api<Identity>("/auth/staff-login", { method: "POST", body: JSON.stringify({ organization_slug: data.get("organization"), email: data.get("email"), password: data.get("password") }) }); location.assign(me.kind === "staff" ? "/staff" : "/chat"); } catch (problem) { setError((problem as ApiProblem).message); } }
+  return <main className="login-shell"><section className="login-story"><div className="brand light"><span>N</span><div><strong>NovaCart</strong><small>Shop well. Supported always.</small></div></div><div><p className="eyebrow">Thoughtful support, from checkout onward</p><h1>Answers that understand your order.</h1><p>Track deliveries, resolve order questions, and reach a real NovaCart specialist in one secure conversation.</p></div><footer>Secure synthetic demonstration · English & Français</footer></section><section className="login-panel"><div className="login-card"><p className="eyebrow">Welcome</p><h2>Sign in to support</h2><div className="tabs" role="tablist"><button type="button" role="tab" aria-selected={mode === "customer"} onClick={() => setMode("customer")}>Customer</button><button type="button" role="tab" aria-selected={mode === "staff"} onClick={() => setMode("staff")}>Staff</button></div><form onSubmit={submit}>{mode === "customer" ? <><label>Demo customer<select name="persona" required>{personas.map((p) => <option key={`${p.organization_slug}-${p.persona_key}`} value={p.persona_key}>{p.display_name} · {p.locale.toUpperCase()}</option>)}</select></label><input type="hidden" name="organization" value={personas[0]?.organization_slug ?? "novacart"}/></> : <><label>Organization<input name="organization" defaultValue="novacart" required/></label><label>Email<input name="email" type="email" defaultValue="support@novacart.test" required/></label><label>Password<input name="password" type="password" required minLength={8}/></label></>} {error && <div className="alert" role="alert">{error}</div>}<button className="primary wide">Continue securely</button></form><p className="privacy">Your session stays in a secure HttpOnly cookie. NovaCart never stores browser tokens.</p></div></section></main>;
 }

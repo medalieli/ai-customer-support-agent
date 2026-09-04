@@ -181,6 +181,14 @@ the PostgreSQL and Redis volumes are untouched.
 
 ## Documentation
 
+The M13 workspaces run at `http://localhost:3000`; API docs are at port `8000` and mock commerce/CRM
+docs at `8080`/`8090`. Demo customers are `amira-en` and `lucas-fr`; `nora-en` is the isolation
+persona. Staff accounts are `support@novacart.test` (Support) and `admin@novacart.test` (Admin),
+using `NOVACART_DEMO_STAFF_PASSWORD`. Walkthrough: create a customer conversation, ask an EN/FR FAQ
+or track `NC-1001`, review and approve a server-issued action card, request a person, then use a
+private browser session to claim, publicly reply, add a private note, resolve, or return the thread
+to AI. Provider writes use only persistent mock commerce and CRM.
+
 - [Milestones](MILESTONES.md)
 - [Product requirements](docs/PRODUCT_REQUIREMENTS.md)
 - [Architecture](docs/ARCHITECTURE.md)

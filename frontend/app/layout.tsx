@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "NovaCart Support",
-  description: "Foundation for NovaCart's AI-assisted customer support platform",
+  description: "Secure AI-assisted customer care for NovaCart",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

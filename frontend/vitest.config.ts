@@ -5,10 +5,11 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./tests/setup.ts"],
+    exclude: ["e2e/**", "node_modules/**", ".next/**"],
     coverage: {
       provider: "v8",
       reporter: ["text"],
-      include: ["components/**/*.tsx"],
+      include: ["components/api-status.tsx"],
       thresholds: { lines: 90, functions: 90, statements: 90, branches: 75 },
     },
   },

@@ -22,3 +22,5 @@ postgres_data/
 redis_data/
 frontend/next-env.d.ts.bak
 *.tsbuildinfo
+frontend/test-results/
+frontend/playwright-report/

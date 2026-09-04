@@ -1,15 +1,13 @@
 import { render, screen } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 
 import Home from "@/app/page";
 
-vi.mock("@/components/api-status", () => ({ ApiStatus: () => <div>API status placeholder</div> }));
-
-it("renders the M1 project foundation", () => {
+it("renders the NovaCart support login", () => {
   render(<Home />);
   expect(
-    screen.getByRole("heading", { name: "Customer support platform foundation" }),
+    screen.getByRole("heading", { name: "Answers that understand your order." }),
   ).toBeInTheDocument();
-  expect(screen.getByText(/intentionally not implemented yet/i)).toBeInTheDocument();
-  expect(screen.getByText(/Mock providers/)).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "Customer" })).toBeInTheDocument();
+  expect(screen.getByText(/HttpOnly cookie/)).toBeInTheDocument();
 });

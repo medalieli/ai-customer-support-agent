@@ -1,8 +1,9 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -45,12 +46,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = resolved_settings
     register_error_handlers(app)
+
+    @app.middleware("http")
+    async def browser_csrf(request: Request, call_next):  # type: ignore[no-untyped-def]
+        origin = request.headers.get("origin")
+        if (
+            request.method in {"POST", "PUT", "PATCH", "DELETE"}
+            and origin
+            and origin == str(resolved_settings.frontend_url).rstrip("/")
+            and request.headers.get("x-csrf-token") != "novacart-browser-v1"
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={"error": {"code": "csrf_rejected", "message": "Request rejected"}},
+            )
+        return await call_next(request)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[str(resolved_settings.frontend_url).rstrip("/")],
         allow_credentials=True,
         allow_methods=["GET", "POST"],
-        allow_headers=["Accept", "Content-Type"],
+        allow_headers=[
+            "Accept",
+            "Content-Type",
+            "Idempotency-Key",
+            "Last-Event-ID",
+            "X-CSRF-Token",
+        ],
     )
     app.include_router(health_router)
     app.include_router(v1_router)
