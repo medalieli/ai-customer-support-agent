@@ -1,0 +1,44 @@
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: novacart
+      POSTGRES_USER: novacart
+      POSTGRES_PASSWORD: isolated-e2e-password
+  api:
+    environment:
+      NOVACART_POSTGRES_HOST: postgres
+      NOVACART_POSTGRES_DB: novacart
+      NOVACART_POSTGRES_USER: novacart
+      NOVACART_POSTGRES_PASSWORD: isolated-e2e-password
+      COMMERCE_PROVIDER: mock
+      CRM_PROVIDER: mock
+      NOVACART_MOCK_COMMERCE_INTERNAL_API_KEY: development-commerce-key
+      NOVACART_MOCK_CRM_INTERNAL_API_KEY: development-crm-key
+      NOVACART_APP_ENV: test
+      NOVACART_FRONTEND_URL: http://localhost:13000
+      NOVACART_AGENT_PROVIDER: ${E2E_AGENT_PROVIDER:-deterministic}
+      NOVACART_EMBEDDING_PROVIDER: fake
+      NOVACART_RERANKER_PROVIDER: deterministic
+      NOVACART_RETRIEVAL_MIN_RERANKER_SCORE: "-100"
+      NOVACART_DEMO_AUTH_ENABLED: "true"
+      NOVACART_DEMO_STAFF_PASSWORD: synthetic-demo-password
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seed && python -m app.knowledge.seed && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+  worker:
+    environment:
+      NOVACART_POSTGRES_HOST: postgres
+      NOVACART_POSTGRES_DB: novacart
+      NOVACART_POSTGRES_USER: novacart
+      NOVACART_POSTGRES_PASSWORD: isolated-e2e-password
+      NOVACART_APP_ENV: test
+      NOVACART_AGENT_PROVIDER: deterministic
+      NOVACART_EMBEDDING_PROVIDER: fake
+      NOVACART_RERANKER_PROVIDER: deterministic
+      NOVACART_RETRIEVAL_MIN_RERANKER_SCORE: "-100"
+      NOVACART_DEMO_AUTH_ENABLED: "true"
+      NOVACART_DEMO_STAFF_PASSWORD: synthetic-demo-password
+  mock-commerce:
+    environment:
+      MOCK_COMMERCE_INTERNAL_API_KEY: development-commerce-key
+  mock-crm:
+    environment:
+      MOCK_CRM_INTERNAL_API_KEY: development-crm-key

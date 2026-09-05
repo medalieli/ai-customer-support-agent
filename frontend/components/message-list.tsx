@@ -11,8 +11,8 @@ function Citations({ items }: { items: Citation[] }) {
 }
 
 export function MessageList({ messages }: { messages: Message[] }) {
-  if (!messages.length) return <div className="empty"><h3>Start a conversation</h3><p>Ask about an order, delivery, return, product, or policy.</p></div>;
-  return <ol className="messages" aria-live="polite">{messages.map((message) => {
+  if (!messages.length) return <div className="empty" tabIndex={0}><h2>Start a conversation</h2><p>Ask about an order, delivery, return, product, or policy.</p></div>;
+  return <ol className="messages" aria-live="polite" tabIndex={0}>{messages.map((message) => {
     const data = structured(message.content);
     const citations = (data?.citations ?? []) as Citation[];
     const isProvider = message.role === "system_event";

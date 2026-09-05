@@ -15,7 +15,7 @@ from app.agent.state import IntentLabel, IntentScore
 from app.agent.triage import TriageOutput
 from app.api.dependencies import get_db_session
 from app.core.config import Settings
-from app.domain.models import AgentRun, AgentThread
+from app.domain.models import AgentRun, AgentThread, AuditEvent
 from app.infrastructure.database import create_database_engine, set_tenant_scope
 from app.main import create_app
 from app.seed import ORGANIZATIONS, seed
@@ -66,8 +66,8 @@ async def agent_client() -> AsyncIterator[tuple[AsyncClient, async_sessionmaker[
         demo_staff_password=SecretStr("synthetic-demo-password"),
         embedding_provider="fake",
         reranker_provider="deterministic",
-        mock_commerce_url="http://localhost:8080",
-        mock_crm_url="http://localhost:8090",
+        mock_commerce_url=os.getenv("NOVACART_MOCK_COMMERCE_URL", "http://localhost:8080"),
+        mock_crm_url=os.getenv("NOVACART_MOCK_CRM_URL", "http://localhost:8090"),
     )
     engine = create_database_engine(settings)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -100,6 +100,99 @@ async def login_and_conversation(client: AsyncClient, persona: str, org: str) ->
     created = await client.post("/api/v1/conversations", json={"title": "M6"})
     assert created.status_code == 201
     return UUID(created.json()["id"])
+
+
+@pytest.mark.asyncio
+async def test_conversation_audit_rbac_and_untrusted_metadata(
+    agent_client: tuple[AsyncClient, async_sessionmaker[AsyncSession]],
+) -> None:
+    client, factory = agent_client
+    conversation_id = await login_and_conversation(client, "amira-en", "novacart")
+    path = f"/api/v1/staff/conversations/{conversation_id}/audit"
+    assert (await client.get(path)).status_code == 403
+    async with factory() as session:
+        await set_tenant_scope(session, ORGANIZATIONS[0].id)
+        session.add(
+            AuditEvent(
+                organization_id=ORGANIZATIONS[0].id,
+                actor_type="agent",
+                action="agent.triage_completed",
+                outcome="recorded",
+                target_type="conversation",
+                target_id=conversation_id,
+                metadata_json={
+                    "status": {"secret": "PRIVATE-ADDRESS-PAYLOAD"},
+                    "chain_of_thought": "PRIVATE-REASONING",
+                },
+            )
+        )
+        await session.commit()
+    await client.post("/api/v1/auth/logout")
+    for email in ("support@novacart.test", "admin@novacart.test"):
+        login = await client.post(
+            "/api/v1/auth/staff-login",
+            json={
+                "organization_slug": "novacart",
+                "email": email,
+                "password": "synthetic-demo-password",
+            },
+        )
+        assert login.status_code == 200
+        response = await client.get(path)
+        assert response.status_code == 200
+        assert "PRIVATE" not in response.text
+        assert all(item["metadata"] == {} for item in response.json()["items"])
+        assert (await client.get(f"/api/v1/staff/conversations/{uuid4()}/audit")).status_code == 404
+        await client.post("/api/v1/auth/logout")
+    await client.post(
+        "/api/v1/auth/staff-login",
+        json={
+            "organization_slug": "orbit-outlet",
+            "email": "support@orbit.test",
+            "password": "synthetic-demo-password",
+        },
+    )
+    assert (await client.get(path)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_demo_reset_preserves_other_tenant_and_audit(
+    agent_client: tuple[AsyncClient, async_sessionmaker[AsyncSession]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy import func
+
+    from app import demo_reset
+    from app.domain.models import Conversation
+
+    client, factory = agent_client
+    await login_and_conversation(client, "amira-en", "novacart")
+    await client.post("/api/v1/auth/logout")
+    other_id = await login_and_conversation(client, "nora-en", "orbit-outlet")
+    settings = Settings(
+        app_env="development",
+        demo_auth_enabled=True,
+        demo_staff_password=SecretStr("synthetic-demo-password"),
+    )
+    monkeypatch.setattr(demo_reset, "get_settings", lambda: settings)
+    monkeypatch.setenv("NOVACART_CONFIRM_DEMO_RESET", "RESET_SYNTHETIC_NOVACART")
+    async with factory() as session:
+        await set_tenant_scope(session, ORGANIZATIONS[0].id)
+        before = await session.scalar(select(func.count(AuditEvent.id)))
+    await demo_reset.main()
+    async with factory() as session:
+        await set_tenant_scope(session, ORGANIZATIONS[0].id)
+        assert (
+            await session.scalar(
+                select(func.count(Conversation.id)).where(
+                    Conversation.organization_id == ORGANIZATIONS[0].id
+                )
+            )
+            == 0
+        )
+        assert await session.scalar(select(func.count(AuditEvent.id))) == before
+        await set_tenant_scope(session, ORGANIZATIONS[1].id)
+        assert await session.get(Conversation, other_id) is not None
 
 
 @pytest.mark.asyncio
@@ -217,12 +310,34 @@ async def test_staff_ticket_api_rbac_claim_reply_note_resolve(
         headers={"Idempotency-Key": f"stale-{uuid4()}"},
     )
     assert stale.status_code == 409
+    timeline = await client.get(f"/api/v1/staff/tickets/{ticket_id}/audit", params={"limit": 2})
+    assert timeline.status_code == 200
+    first_page = timeline.json()
+    assert first_page["items"]
+    assert first_page["next_cursor"] is not None
+    assert all("actor_id" not in item for item in first_page["items"])
+    assert "Private staff note." not in timeline.text
+    second_page = await client.get(
+        f"/api/v1/staff/tickets/{ticket_id}/audit",
+        params={"limit": 100, "cursor": first_page["next_cursor"]},
+    )
+    assert second_page.status_code == 200
+    assert {item["id"] for item in first_page["items"]}.isdisjoint(
+        item["id"] for item in second_page.json()["items"]
+    )
+    assert (await client.get(f"/api/v1/staff/tickets/{uuid4()}/audit")).status_code == 404
+    assert (
+        await client.get(
+            f"/api/v1/staff/tickets/{ticket_id}/audit", params={"cursor": str(uuid4())}
+        )
+    ).status_code == 404
     assert (
         await client.get("/api/v1/staff/tickets", params={"status": "invalid"})
     ).status_code == 422
 
     await client.post("/api/v1/auth/logout")
     await login_and_conversation(client, "amira-en", "novacart")
+    assert (await client.get(f"/api/v1/staff/tickets/{ticket_id}/audit")).status_code == 403
     messages = await client.get(f"/api/v1/conversations/{conversation_id}/messages")
     assert messages.status_code == 200
     bodies = [item["content"] for item in messages.json()]

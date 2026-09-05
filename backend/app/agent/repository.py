@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models import AgentEvent, AgentRun, AgentThread
 from app.infrastructure.database import set_tenant_scope
+from app.services.audit import AuditService
 
 
 class RunConflict(Exception):
@@ -82,6 +83,20 @@ class AgentRepository:
         return run, True
 
     async def event(self, run: AgentRun, event_type: str, payload: dict[str, object]) -> None:
+        conversation_id = await self.session.scalar(
+            select(AgentThread.conversation_id).where(
+                AgentThread.organization_id == run.organization_id,
+                AgentThread.id == run.thread_id,
+            )
+        )
+        await AuditService(self.session).record(
+            run.organization_id,
+            "agent",
+            f"agent.{event_type}",
+            "recorded",
+            target_type="conversation",
+            target_id=conversation_id,
+        )
         sequence = await self.session.scalar(
             select(func.coalesce(func.max(AgentEvent.sequence_number), 0)).where(
                 AgentEvent.run_id == run.id

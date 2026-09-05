@@ -15,6 +15,11 @@ Support and Admin staff can list and retrieve their tenant queue at `GET /staff/
 staff receive no queue or ticket access. Stale versions and invalid ownership transitions return
 safe conflicts.
 
+`GET /staff/tickets/{ticket_id}/audit` and `GET /staff/conversations/{conversation_id}/audit`
+return cursor-paginated, sanitized operational events to Support/Admin staff in that tenant.
+Payload bodies, private notes, addresses, credentials, provider payloads, and model reasoning are
+excluded from this projection.
+
 Ticket summaries contain only validated conversation/tool evidence, citation receipt IDs,
 pending/failed action references, the deterministic reason/priority, and timestamp. OpenAI creates
 the strict draft; validation failure uses an explicitly marked deterministic summary so escalation

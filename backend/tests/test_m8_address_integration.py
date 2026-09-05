@@ -117,8 +117,8 @@ async def m8_client() -> AsyncIterator[tuple[AsyncClient, async_sessionmaker[Asy
         openai_api_key=None,
         embedding_provider="fake",
         reranker_provider="deterministic",
-        mock_commerce_url="http://localhost:8080",
-        mock_crm_url="http://localhost:8090",
+        mock_commerce_url=os.getenv("NOVACART_MOCK_COMMERCE_URL", "http://localhost:8080"),
+        mock_crm_url=os.getenv("NOVACART_MOCK_CRM_URL", "http://localhost:8090"),
         action_secret=SecretStr("m8-test-action-secret-at-least-32-bytes"),
     )
     engine = create_database_engine(settings)
@@ -389,7 +389,9 @@ async def test_order_version_change_invalidates_confirmation(
         "X-Organization-Id": "10000000-0000-0000-0000-000000000001",
         "X-External-Customer-Id": "seed-amira-en",
     }
-    async with AsyncClient(base_url="http://localhost:8080") as commerce:
+    async with AsyncClient(
+        base_url=os.getenv("NOVACART_MOCK_COMMERCE_URL", "http://localhost:8080")
+    ) as commerce:
         current = (await commerce.get("/v1/orders/ord-address", headers=headers)).json()
         changed = await commerce.patch(
             "/v1/orders/ord-address/shipping-address",
@@ -437,7 +439,7 @@ async def test_timeout_after_submission_reconciles_with_same_key(
         postgres_host="localhost",
         embedding_provider="fake",
         reranker_provider="deterministic",
-        mock_commerce_url="http://localhost:8080",
+        mock_commerce_url=os.getenv("NOVACART_MOCK_COMMERCE_URL", "http://localhost:8080"),
     )
     wrapped = TimeoutAfterWriteCommerce(create_commerce_provider(settings))
     monkeypatch.setattr("app.api.v1.agent.create_commerce_provider", lambda _: wrapped)
@@ -508,7 +510,7 @@ async def test_write_failures_are_safe_and_never_report_success(
         postgres_host="localhost",
         embedding_provider="fake",
         reranker_provider="deterministic",
-        mock_commerce_url="http://localhost:8080",
+        mock_commerce_url=os.getenv("NOVACART_MOCK_COMMERCE_URL", "http://localhost:8080"),
     )
     wrapped = FailingWriteCommerce(create_commerce_provider(settings), code)
     monkeypatch.setattr("app.api.v1.agent.create_commerce_provider", lambda _: wrapped)
@@ -555,7 +557,7 @@ async def test_fresh_read_failure_and_fulfillment_lock_fail_closed(
         postgres_host="localhost",
         embedding_provider="fake",
         reranker_provider="deterministic",
-        mock_commerce_url="http://localhost:8080",
+        mock_commerce_url=os.getenv("NOVACART_MOCK_COMMERCE_URL", "http://localhost:8080"),
     )
     wrapped = wrapper_type(create_commerce_provider(settings))
     monkeypatch.setattr("app.api.v1.agent.create_commerce_provider", lambda _: wrapped)

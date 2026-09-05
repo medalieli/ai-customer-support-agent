@@ -3,9 +3,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from app.api.dependencies import CurrentPrincipal, DatabaseSession
-from app.domain.models import Conversation, Message, MessageRole
+from app.domain.models import Conversation, Customer, Message, MessageRole
 from app.repositories.conversations import ConversationRepository
 from app.services.audit import AuditService
 from app.services.auth import AuthorizationError, ResourceNotFoundError
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 class ConversationCreate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
-    locale: str = Field(default="en", pattern="^(en|fr)$")
+    locale: str | None = Field(default=None, pattern="^(en|fr)$")
     customer_id: UUID | None = None
     organization_id: UUID | None = None
 
@@ -103,8 +104,16 @@ async def create_conversation(
     if principal.kind != "customer":
         raise AuthorizationError
     repository = ConversationRepository(session)
+    locale = payload.locale
+    if locale is None:
+        locale = await session.scalar(
+            select(Customer.locale).where(
+                Customer.organization_id == principal.organization_id,
+                Customer.id == principal.subject_id,
+            )
+        )
     conversation = await repository.create_for_customer(
-        principal.organization_id, principal.subject_id, payload.locale, payload.title
+        principal.organization_id, principal.subject_id, locale or "en", payload.title
     )
     await AuditService(session).record(
         principal.organization_id,

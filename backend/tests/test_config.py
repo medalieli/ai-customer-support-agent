@@ -59,3 +59,24 @@ def test_exact_provider_environment_names_are_supported(monkeypatch: pytest.Monk
 def test_database_url_encodes_password_characters() -> None:
     settings = Settings(app_env="test", postgres_password=SecretStr("synthetic:p@ss/word"))
     assert "synthetic%3Ap%40ss%2Fword" in settings.database_url
+
+
+def test_deterministic_agent_is_explicitly_test_only() -> None:
+    settings = Settings(app_env="test", agent_provider="deterministic")
+    assert settings.agent_provider == "deterministic"
+    with pytest.raises(ValidationError, match="allowed only in test"):
+        Settings(app_env="development", agent_provider="deterministic")
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"chunk_size_words": 20, "chunk_overlap_words": 20}, "Chunk overlap"),
+        ({"action_secret": SecretStr("short")}, "Action secret"),
+        ({"mock_commerce_internal_api_key": SecretStr("short")}, "Mock commerce"),
+        ({"mock_crm_internal_api_key": SecretStr("short")}, "Mock CRM"),
+    ],
+)
+def test_unsafe_configuration_is_rejected(overrides: dict[str, object], message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        Settings(app_env="test", **overrides)  # type: ignore[arg-type]

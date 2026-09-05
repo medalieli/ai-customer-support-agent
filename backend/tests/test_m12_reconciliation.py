@@ -3,7 +3,9 @@ import hashlib
 import hmac
 import json
 import os
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 import pytest
 from sqlalchemy import func, select
@@ -34,6 +36,7 @@ from app.providers.models import (
     SupportTicket,
     TicketMessage,
 )
+from app.providers.ports import CommerceProviderV1, CrmProviderV1
 from app.seed import ORGANIZATIONS, STAFF, seed
 from app.services.provider_bindings import bind_resource
 from app.services.webhooks import accept, process
@@ -138,8 +141,8 @@ class Crm:
 
 
 @pytest.fixture
-async def setup() -> tuple[
-    AsyncSession, Settings, Customer, Conversation, ProviderConnection, ProviderConnection
+async def setup() -> AsyncIterator[
+    tuple[AsyncSession, Settings, Customer, Conversation, ProviderConnection, ProviderConnection]
 ]:
     settings = Settings(app_env="test")
     engine = create_database_engine(settings)
@@ -222,7 +225,10 @@ async def test_authoritative_order_sync_once_ordered_and_multi_conversation(
         "POST",
         "http://test",
     )
-    assert await process(session, settings, event.id, commerce=authoritative) == "processed"
+    assert (
+        await process(session, settings, event.id, commerce=cast(CommerceProviderV1, authoritative))
+        == "processed"
+    )
     assert (
         len(authoritative.calls) == 1
         and authoritative.calls[0].customer_ref == customer.provider_customer_ref
@@ -242,7 +248,12 @@ async def test_authoritative_order_sync_once_ordered_and_multi_conversation(
         "POST",
         "http://test",
     )
-    assert await process(session, settings, repeated.id, commerce=authoritative) == "stale"
+    assert (
+        await process(
+            session, settings, repeated.id, commerce=cast(CommerceProviderV1, authoritative)
+        )
+        == "stale"
+    )
     messages = list(
         await session.scalars(
             select(Message).where(
@@ -276,7 +287,10 @@ async def test_authoritative_order_sync_once_ordered_and_multi_conversation(
         "POST",
         "http://test",
     )
-    assert await process(session, settings, older.id, commerce=authoritative) == "stale"
+    assert (
+        await process(session, settings, older.id, commerce=cast(CommerceProviderV1, authoritative))
+        == "stale"
+    )
 
 
 @pytest.mark.asyncio
@@ -353,7 +367,7 @@ async def test_crm_assignment_public_reply_and_internal_note_privacy(
         "POST",
         "http://test",
     )
-    assert await process(session, settings, event.id, crm=crm) == "processed"
+    assert await process(session, settings, event.id, crm=cast(CrmProviderV1, crm)) == "processed"
     await session.refresh(conversation)
     await session.refresh(local)
     assert conversation.owner == ConversationOwner.STAFF and local.assigned_staff_id == staff_id
@@ -384,7 +398,10 @@ async def test_crm_assignment_public_reply_and_internal_note_privacy(
         "POST",
         "http://test",
     )
-    assert await process(session, settings, note.id, crm=crm) in {"processed", "stale"}
+    assert await process(session, settings, note.id, crm=cast(CrmProviderV1, crm)) in {
+        "processed",
+        "stale",
+    }
     count = await session.scalar(
         select(func.count(Message.id)).where(Message.conversation_id == conversation.id)
     )

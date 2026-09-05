@@ -5,6 +5,8 @@ export type Citation = { title?: string; document_title?: string; section?: stri
 export type Confirmation = { action_id: string; confirmation_token: string; expires_at: string | null; order_number?: string; masked_current_address?: unknown; proposed_address?: unknown; amount?: unknown; item?: unknown; fields_to_store?: unknown; purpose?: string; consequences?: string[]; citations?: Citation[] };
 export type AgentRun = { run_id: string; status: string; duplicate: boolean; checkpoint_version: number; confirmation?: Confirmation | null; result?: Record<string, unknown> | null; message?: string | null };
 export type Ticket = { id: string; conversation_id: string; reason_code: string; priority: string; status: string; assigned_staff_id: string | null; summary: Record<string, unknown>; version: number; created_at: string };
+export type AuditTimelineItem = { id: string; category: string; action: string; outcome: string; reason_code: string | null; actor_type: string; occurred_at: string; metadata: Record<string, unknown> };
+export type AuditTimelinePage = { items: AuditTimelineItem[]; next_cursor: string | null };
 export type ApiProblem = { code: string; message: string; status: number };
 
 const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";

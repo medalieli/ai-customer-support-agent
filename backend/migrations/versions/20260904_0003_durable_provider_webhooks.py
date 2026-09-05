@@ -5,6 +5,7 @@ Revises: 20260904_0002
 """
 
 from collections.abc import Sequence
+
 import sqlalchemy as sa
 from alembic import op
 
@@ -19,7 +20,11 @@ def _rls(table: str) -> None:
     op.execute(sa.text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"))
     op.execute(
         sa.text(
-            f"CREATE POLICY tenant_isolation ON {table} USING (organization_id = NULLIF(current_setting('app.organization_id', true), '')::uuid) WITH CHECK (organization_id = NULLIF(current_setting('app.organization_id', true), '')::uuid)"
+            f"CREATE POLICY tenant_isolation ON {table} "
+            "USING (organization_id = "
+            "NULLIF(current_setting('app.organization_id', true), '')::uuid) "
+            "WITH CHECK (organization_id = "
+            "NULLIF(current_setting('app.organization_id', true), '')::uuid)"
         )
     )
 
@@ -49,9 +54,7 @@ def upgrade() -> None:
         type_="unique",
     )
     op.drop_column("webhook_events", "signature_valid")
-    op.alter_column(
-        "webhook_events", "status", type_=sa.String(20), existing_type=sa.String(10)
-    )
+    op.alter_column("webhook_events", "status", type_=sa.String(20), existing_type=sa.String(10))
     for col in [
         sa.Column("connection_id", sa.UUID()),
         sa.Column("topic", sa.String(120)),
@@ -109,9 +112,7 @@ def downgrade() -> None:
     op.drop_index("ix_webhook_events_connection_id", table_name="webhook_events")
     op.drop_constraint("uq_webhook_connection_event", "webhook_events", type_="unique")
     op.drop_constraint("fk_webhook_connection", "webhook_events", type_="foreignkey")
-    op.alter_column(
-        "webhook_events", "status", type_=sa.String(10), existing_type=sa.String(20)
-    )
+    op.alter_column("webhook_events", "status", type_=sa.String(10), existing_type=sa.String(20))
     for name in (
         "processed_at",
         "processing_started_at",

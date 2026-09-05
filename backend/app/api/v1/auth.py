@@ -56,7 +56,11 @@ async def list_demo_personas(
         await set_tenant_scope(session, organization.id)
         customers = await session.scalars(
             select(Customer)
-            .where(Customer.demo_key.is_not(None), Customer.status == Status.ACTIVE)
+            .where(
+                Customer.organization_id == organization.id,
+                Customer.demo_key.is_not(None),
+                Customer.status == Status.ACTIVE,
+            )
             .order_by(Customer.demo_key)
         )
         personas.extend(

@@ -1,0 +1,8 @@
+:root { --muted: #586273; }
+.audit-timeline { margin: 1.25rem auto; width: min(980px, calc(100% - 2.5rem)); background: white; border: 1px solid var(--line); border-radius: 13px; padding: 1.25rem; }
+.audit-timeline ol { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; }
+.audit-timeline li { display: grid; grid-template-columns: 7rem 1fr; gap: 1rem; padding: .9rem 0; border-bottom: 1px solid var(--line); }
+.audit-timeline p, .audit-timeline time { color: var(--muted); font-size: .78rem; }
+.audit-timeline p { margin: .3rem 0; }
+.audit-kind { align-self: start; text-align: center; border-radius: 99px; padding: .3rem .5rem; background: #edf3f9; color: var(--blue); font-size: .7rem; font-weight: 800; text-transform: uppercase; }
+@media (max-width: 480px) { .audit-timeline li { grid-template-columns: 1fr; } }

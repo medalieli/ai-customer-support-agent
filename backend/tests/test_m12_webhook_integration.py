@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import os
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -27,7 +28,7 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture
-async def database() -> tuple[AsyncSession, Settings, ProviderConnection]:
+async def database() -> AsyncIterator[tuple[AsyncSession, Settings, ProviderConnection]]:
     settings = Settings(app_env="test")
     engine = create_database_engine(settings)
     factory = async_sessionmaker(engine, expire_on_commit=False)

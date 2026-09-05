@@ -45,6 +45,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = resolved_settings
+    if resolved_settings.agent_provider == "deterministic":
+        from app.agent.deterministic import (
+            DeterministicAnswerModel,
+            DeterministicHandoffSummaryModel,
+            DeterministicLeadExtractor,
+            DeterministicTriageModel,
+        )
+
+        app.state.agent_triage_factory = DeterministicTriageModel
+        app.state.agent_answer_factory = DeterministicAnswerModel
+        app.state.agent_handoff_summary_factory = DeterministicHandoffSummaryModel
+        app.state.agent_lead_extractor_factory = DeterministicLeadExtractor
     register_error_handlers(app)
 
     @app.middleware("http")
@@ -61,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 content={"error": {"code": "csrf_rejected", "message": "Request rejected"}},
             )
         return await call_next(request)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[str(resolved_settings.frontend_url).rstrip("/")],

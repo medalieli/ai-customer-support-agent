@@ -1,8 +1,8 @@
 # NovaCart AI Customer Support Agent
 
 NovaCart is a standalone portfolio project for a production-style customer-support platform.
-**Milestones M0 through M11 are complete.** M11 adds durable human escalation, tenant-scoped
-support tickets, and an RBAC-protected staff handoff lifecycle.
+**Milestones M0 through M13 are complete.** M13 adds customer and staff workspaces, sanitized
+tenant audit timelines, and isolated full-stack browser acceptance coverage.
 
 The local workflow uses real OpenAI structured extraction only when configured and always uses the
 persistent mock CRM. HubSpot remains credential-gated and is verified with mocked HTTP contracts;
@@ -13,7 +13,7 @@ deferred.
 
 | Service | Local URL | Purpose |
 |---|---|---|
-| Frontend | <http://localhost:3000> | Minimal M1 placeholder and live API readiness indicator |
+| Frontend | <http://localhost:3000> | Customer chat and staff support workspaces |
 | API | <http://localhost:8000> | FastAPI foundation |
 | OpenAPI | <http://localhost:8000/docs> | Interactive API documentation |
 | PostgreSQL | `127.0.0.1:5432` | Loopback-only for native migrations/tests; persistent PostgreSQL 17 + pgvector volume |
@@ -139,7 +139,30 @@ CI repeats these checks and validates/builds the Compose services. Generated dep
 
 Database integration tests run when `NOVACART_RUN_DB_TESTS=1`; point `NOVACART_POSTGRES_HOST` at a disposable PostgreSQL 17/pgvector database. See [M2 HTTP API](docs/API.md) for endpoints and access rules. Seeded logins use the password configured in `NOVACART_DEMO_STAFF_PASSWORD`; personas are `amira-en`, `lucas-fr`, and the isolation-only `nora-en` in the second tenant.
 
+Run the deterministic browser acceptance suite in an isolated Compose project:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-e2e.ps1
+```
+
+Each invocation creates a uniquely named Compose project with its own PostgreSQL and Redis volumes,
+uses test-only ports and tenant fixtures, and removes only those temporary resources in a `finally`
+block. It never connects to or deletes the normal development database or its Docker volumes.
+
 ## Stop, restart, and reset
+
+Reset only the documented synthetic NovaCart operational demo records (conversations, tickets,
+sessions, actions, and projections) with the guarded development-only command below. It rejects
+production/test configuration, requires demo authentication, preserves the other tenant and the
+append-only audit ledger, and never deletes Docker volumes:
+
+```powershell
+$env:NOVACART_CONFIRM_DEMO_RESET="RESET_SYNTHETIC_NOVACART"
+docker compose exec -T -e NOVACART_CONFIRM_DEMO_RESET api python -m app.demo_reset
+```
+
+The result is deliberately small: zero conversations and zero tickets until the walkthrough creates
+them. Re-run `python -m app.seed` only to restore missing documented identities/connections.
 
 Stop containers while retaining PostgreSQL and Redis data:
 

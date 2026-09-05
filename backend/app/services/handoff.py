@@ -460,7 +460,10 @@ class HandoffService:
             )
             event = "staff.replied" if visible else "staff.noted"
         elif action in {"resolve", "close", "return_to_ai"}:
-            if ticket.status != TicketStatus.IN_PROGRESS or ticket.assigned_staff_id != staff_id:
+            allowed_statuses = {TicketStatus.IN_PROGRESS}
+            if action == "return_to_ai":
+                allowed_statuses.add(TicketStatus.RESOLVED)
+            if ticket.status not in allowed_statuses or ticket.assigned_staff_id != staff_id:
                 raise HandoffError("staff_not_owner")
             if action == "return_to_ai":
                 ticket.status = TicketStatus.RESOLVED

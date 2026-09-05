@@ -4,7 +4,7 @@ import hmac
 import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -135,7 +135,8 @@ async def test_ingress_api_queues_only_new_events(
 async def test_ingress_api_maps_rejections_and_conflicts(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    request = SimpleNamespace(
+    request = MagicMock(
+        spec=Request,
         body=AsyncMock(return_value=b"{}"),
         headers={},
         method="POST",
@@ -182,7 +183,7 @@ def test_reconciliation_helpers_minimize_and_sanitize() -> None:
         "gid://order/1",
     )
     assert _order_data(
-        SimpleNamespace(
+        MagicMock(
             status="open",
             fulfillment_status="fulfilled",
             tracking=None,
@@ -194,15 +195,18 @@ def test_reconciliation_helpers_minimize_and_sanitize() -> None:
         "tracking_status": None,
         "refund_statuses": ["pending"],
     }
-    assert _order_data(
-        SimpleNamespace(
-            status="open",
-            fulfillment_status="partial",
-            tracking=SimpleNamespace(events=[SimpleNamespace(status="in_transit")]),
-            refund_requests=[],
-        )
-    )["tracking_status"] == "in_transit"
-    assert _ticket_data(SimpleNamespace(status="open", assigned_staff_ref="staff")) == {
+    assert (
+        _order_data(
+            MagicMock(
+                status="open",
+                fulfillment_status="partial",
+                tracking=SimpleNamespace(events=[SimpleNamespace(status="in_transit")]),
+                refund_requests=[],
+            )
+        )["tracking_status"]
+        == "in_transit"
+    )
+    assert _ticket_data(MagicMock(status="open", assigned_staff_ref="staff")) == {
         "status": "open",
         "assigned_staff_ref": "staff",
     }
@@ -211,29 +215,42 @@ def test_reconciliation_helpers_minimize_and_sanitize() -> None:
 
 @pytest.mark.asyncio
 async def test_processor_missing_event_is_safe(settings: Settings) -> None:
-    session = SimpleNamespace(get=AsyncMock(return_value=None))
+    session = AsyncMock(get=AsyncMock(return_value=None))
     assert await process(session, settings, uuid4()) == "missing"
     terminal = SimpleNamespace(organization_id=uuid4(), status=WebhookStatus.PROCESSED)
-    session = SimpleNamespace(get=AsyncMock(return_value=terminal), execute=AsyncMock())
+    session = AsyncMock(get=AsyncMock(return_value=terminal), execute=AsyncMock())
     assert await process(session, settings, uuid4()) == "processed"
 
 
 @pytest.mark.asyncio
 async def test_binding_requires_connection_and_reuses_existing(settings: Settings) -> None:
-    values = {
-        "organization_id": uuid4(),
-        "customer_id": uuid4(),
-        "conversation_id": uuid4(),
-        "resource_type": "order",
-        "external_ref": "order-1",
-    }
-    missing = SimpleNamespace(scalar=AsyncMock(return_value=None))
+    organization_id, customer_id, conversation_id = uuid4(), uuid4(), uuid4()
+    missing = AsyncMock(scalar=AsyncMock(return_value=None))
     with pytest.raises(RuntimeError, match="provider_connection_missing"):
-        await bind_resource(missing, settings, **values)
+        await bind_resource(
+            missing,
+            settings,
+            organization_id=organization_id,
+            customer_id=customer_id,
+            conversation_id=conversation_id,
+            resource_type="order",
+            external_ref="order-1",
+        )
     existing = SimpleNamespace(id=uuid4())
     connection = SimpleNamespace(id=uuid4())
-    session = SimpleNamespace(scalar=AsyncMock(side_effect=[connection, existing]))
-    assert await bind_resource(session, settings, **values) is existing
+    session = AsyncMock(scalar=AsyncMock(side_effect=[connection, existing]))
+    assert (
+        await bind_resource(
+            session,
+            settings,
+            organization_id=organization_id,
+            customer_id=customer_id,
+            conversation_id=conversation_id,
+            resource_type="order",
+            external_ref="order-1",
+        )
+        is existing
+    )
 
 
 @pytest.mark.asyncio
@@ -252,7 +269,7 @@ async def test_staff_event_listing_is_minimized() -> None:
         attempts=2,
         safe_error="processing_failed",
     )
-    session = SimpleNamespace(scalars=AsyncMock(return_value=[item]))
+    session = AsyncMock(scalars=AsyncMock(return_value=[item]))
     result = await api.list_events(principal, session)
     assert result[0].payload_fingerprint == "f" * 64
     assert not hasattr(result[0], "encrypted_payload")

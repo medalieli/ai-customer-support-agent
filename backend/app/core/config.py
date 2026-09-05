@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     shopify_api_version: str = "2026-01"
     openai_api_key: SecretStr | None = None
     agent_model: str = "gpt-5-mini"
+    agent_provider: Literal["openai", "deterministic"] = "openai"
     agent_model_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     agent_max_steps: int = Field(default=8, ge=1, le=20)
     agent_min_confidence: float = Field(default=0.65, ge=0, le=1)
@@ -121,6 +122,8 @@ class Settings(BaseSettings):
             raise ValueError("Fake embeddings cannot be enabled in production")
         if self.app_env == "production" and self.reranker_provider == "deterministic":
             raise ValueError("Deterministic reranking cannot be enabled in production")
+        if self.agent_provider == "deterministic" and self.app_env != "test":
+            raise ValueError("Deterministic agent models are allowed only in test")
         if self.commerce_provider == "shopify" and not (
             self.shopify_store_domain and self.shopify_access_token
         ):

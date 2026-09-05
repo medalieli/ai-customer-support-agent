@@ -155,7 +155,7 @@ async def refund_db() -> AsyncIterator[
         postgres_host="localhost",
         embedding_provider="fake",
         reranker_provider="deterministic",
-        mock_commerce_url="http://localhost:8080",
+        mock_commerce_url=os.getenv("NOVACART_MOCK_COMMERCE_URL", "http://localhost:8080"),
         action_secret=SecretStr("m9-test-action-secret-at-least-32-bytes"),
     )
     engine = create_database_engine(settings)

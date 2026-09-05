@@ -65,6 +65,7 @@ async def test_signed_webhook_emission(
     )
     assert response.status_code == 202
     assert sender.await_count == 2
+    assert sender.await_args is not None
     assert sender.await_args.kwargs["headers"]["X-Mock-Signature"] == "invalid"
 
 

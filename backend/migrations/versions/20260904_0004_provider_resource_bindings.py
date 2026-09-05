@@ -5,6 +5,7 @@ Revises: 20260904_0003
 """
 
 from collections.abc import Sequence
+
 import sqlalchemy as sa
 from alembic import op
 
@@ -19,7 +20,11 @@ def _rls(table: str) -> None:
     op.execute(sa.text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"))
     op.execute(
         sa.text(
-            f"CREATE POLICY tenant_isolation ON {table} USING (organization_id = NULLIF(current_setting('app.organization_id', true), '')::uuid) WITH CHECK (organization_id = NULLIF(current_setting('app.organization_id', true), '')::uuid)"
+            f"CREATE POLICY tenant_isolation ON {table} "
+            "USING (organization_id = "
+            "NULLIF(current_setting('app.organization_id', true), '')::uuid) "
+            "WITH CHECK (organization_id = "
+            "NULLIF(current_setting('app.organization_id', true), '')::uuid)"
         )
     )
 
