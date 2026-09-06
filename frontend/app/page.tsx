@@ -9,7 +9,7 @@ export default function Login() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [mode, setMode] = useState<"customer" | "staff">("customer");
   const [error, setError] = useState("");
-  useEffect(() => { api<Identity>("/auth/me").then((me) => location.assign(me.kind === "staff" ? "/staff" : "/chat")).catch(() => api<Persona[]>("/auth/demo-personas").then(setPersonas).catch(() => setError("Demo customers could not be loaded. Refresh after the API is ready."))); }, []);
+  useEffect(() => { api<Persona[]>("/auth/demo-personas").then(setPersonas).catch(() => setError("Demo customers could not be loaded. Refresh after the API is ready.")); }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
