@@ -15,8 +15,11 @@ New-RandomSecret "postgres_admin_password.txt"
 New-RandomSecret "postgres_runtime_password.txt"
 New-RandomSecret "redis_password.txt"
 if ($DevelopmentSelfSignedCertificate) {
-  if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) { throw "openssl is required for the development certificate" }
-  & openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 30 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" -keyout (Join-Path $target "tls.key") -out (Join-Path $target "tls.crt") 2>$null
+  if (Get-Command openssl -ErrorAction SilentlyContinue) {
+    & openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 30 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" -keyout (Join-Path $target "tls.key") -out (Join-Path $target "tls.crt") 2>$null
+  } else {
+    & python (Join-Path $PSScriptRoot "new-local-tls.py") --output $target
+  }
   if ($LASTEXITCODE) { throw "Certificate generation failed" }
 }
 Write-Output "Generated gitignored mounted secrets. Replace or provision tls.crt/tls.key from a trusted CA."

@@ -162,7 +162,7 @@ Security, operations, and performance commands:
 Set-Location frontend; npm audit --audit-level=high; Set-Location ..
 powershell -File scripts/backup-postgres.ps1
 powershell -File scripts/restore-drill.ps1
-powershell -File scripts/run-load-test.ps1 -Requests 60 -Concurrency 8
+powershell -File scripts/run-load-test.ps1 -Requests 100 -Warmup 8 -ConcurrencyLevels 1,4,8
 ```
 
 CI also runs secret scanning, container vulnerability scanning, SBOM generation, migration/integration
@@ -254,4 +254,5 @@ to AI. Provider writes use only persistent mock commerce and CRM.
 - [Demo scenarios](docs/DEMO_SCENARIOS.md)
 - [Architecture decisions](docs/adr/)
 - [Production operations, backup, incidents, and rotation](docs/PRODUCTION_OPERATIONS.md)
+- [M15 local verification evidence](docs/M15_VERIFICATION.md)
 - [Reproducible load validation](performance/README.md)

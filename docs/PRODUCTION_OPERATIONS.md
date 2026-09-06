@@ -6,7 +6,7 @@
 
 Production startup rejects demo authentication, insecure cookies/public HTTP URLs, API documentation, disabled CSRF, debug logging, weak database/Redis/action secrets, a privileged/default database identity, deterministic/fake AI providers, and selected real adapters without credentials. Secret-file settings support Docker-mounted PostgreSQL and Redis credentials. `.env.production.example` contains placeholders, not usable secrets.
 
-Create `secrets/` (gitignored), generate independent random values for the two database roles and Redis, and provide a trusted certificate/key as `tls.crt`/`tls.key`. `scripts/new-production-secrets.ps1` creates the mounted credentials; its self-signed certificate switch is for local verification only. Copy `.env.production.example` to `.env.production`, replace every placeholder, then:
+Create `secrets/` (gitignored), generate independent random values for the two database roles and Redis, and provide a trusted certificate/key as `tls.crt`/`tls.key`. `scripts/new-production-secrets.ps1` creates the mounted credentials; its self-signed certificate switch is for local verification only. It uses OpenSSL when available and otherwise the backend's Python `cryptography` dependency. Copy `.env.production.example` to `.env.production`, replace every placeholder, then:
 
 ```powershell
 powershell -File scripts/new-production-secrets.ps1 -DevelopmentSelfSignedCertificate
@@ -14,7 +14,13 @@ docker compose --env-file .env.production -f compose.yaml -f compose.production.
 docker compose --env-file .env.production -f compose.yaml -f compose.production.yaml up --build -d --wait
 curl.exe -k -I http://localhost:8088/health/live
 curl.exe -k -I https://localhost:8443/health/ready
+python scripts/verify-production-edge.py
 ```
+
+To include the private observability services, add `-f compose.observability.yaml -f
+compose.production-observability.yaml --profile observability`. Inspect published ports with `docker
+compose ps`; only the proxy must show host bindings. PostgreSQL migrations and LangGraph checkpoint
+DDL run in the one-shot migrator, while API and worker connect as the restricted runtime role.
 
 Only the proxy publishes host ports. Data services are on an internal network; API, worker, and mocks have no published ports. The proxy redirects HTTP, terminates TLS, sets HSTS/CSP/frame/content-type/referrer/permissions headers, caps bodies at 2 MiB, and disables buffering with a 65-second read timeout for SSE. Application images are multi-stage and non-root. The overlay drops capabilities, enables `no-new-privileges`, uses read-only roots where practical, tmpfs scratch space, health gates, restart policies, graceful stop intervals, resource bounds, and rotating local logs.
 

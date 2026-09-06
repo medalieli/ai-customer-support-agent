@@ -6,7 +6,7 @@ from pydantic import SecretStr
 
 from app import prepare_database
 from app.core.config import Settings
-from app.main import create_app
+from app.main import create_app, runtime_may_prepare_checkpoint_schema
 
 
 def secure_production_settings() -> Settings:
@@ -30,6 +30,11 @@ def secure_production_settings() -> Settings:
         mock_commerce_webhook_secret=SecretStr("unique-commerce-webhook-secret-32-bytes"),
         mock_crm_webhook_secret=SecretStr("unique-crm-webhook-secret-more-than-32-bytes"),
     )
+
+
+def test_production_runtime_never_prepares_checkpoint_schema() -> None:
+    assert runtime_may_prepare_checkpoint_schema(secure_production_settings()) is False
+    assert runtime_may_prepare_checkpoint_schema(Settings(app_env="test")) is True
 
 
 @pytest.fixture

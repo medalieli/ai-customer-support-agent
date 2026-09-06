@@ -30,6 +30,11 @@ from app.observability import (
 )
 
 
+def runtime_may_prepare_checkpoint_schema(settings: Settings) -> bool:
+    """Keep production DDL behind the dedicated migration identity."""
+    return settings.app_env != "production"
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
     configure_logging(resolved_settings.log_level)
@@ -46,7 +51,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         checkpoint_url = resolved_settings.database_url.replace("postgresql+asyncpg", "postgresql")
         checkpoint_context = AsyncPostgresSaver.from_conn_string(checkpoint_url)
         app.state.agent_checkpointer = await checkpoint_context.__aenter__()
-        await app.state.agent_checkpointer.setup()
+        # Production schema DDL belongs exclusively to the migration identity.
+        if runtime_may_prepare_checkpoint_schema(resolved_settings):
+            await app.state.agent_checkpointer.setup()
         yield
         await checkpoint_context.__aexit__(None, None, None)
         await app.state.job_queue.aclose()

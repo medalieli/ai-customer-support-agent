@@ -18,6 +18,7 @@ services:
   postgres:
     ports: !reset []
     environment:
+      POSTGRES_PASSWORD: !reset null
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
     secrets: [postgres_admin_password]
     networks: [data]
@@ -35,6 +36,7 @@ services:
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     deploy: {resources: {limits: {cpus: "0.50", memory: 512M}}}
     healthcheck:
       test: ["CMD-SHELL", "REDISCLI_AUTH=$$(cat /run/secrets/redis_password) redis-cli ping | grep PONG"]
@@ -103,6 +105,7 @@ services:
 
   proxy:
     image: nginx:1.29.1-alpine3.22
+    user: "101:101"
     depends_on: {api: {condition: service_healthy}, frontend: {condition: service_healthy}}
     ports: ["${HTTP_HOST_PORT:-8088}:8080", "${HTTPS_HOST_PORT:-8443}:8443"]
     volumes: ["./deploy/nginx.conf:/etc/nginx/nginx.conf:ro"]
@@ -110,7 +113,6 @@ services:
     read_only: true
     tmpfs: [/tmp, /var/cache/nginx]
     cap_drop: [ALL]
-    cap_add: [NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
     stop_grace_period: 15s
