@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, computed_field, model_validator
@@ -24,18 +25,23 @@ class Settings(BaseSettings):
     otel_exporter_endpoint: AnyHttpUrl = AnyHttpUrl("http://otel-collector:4318")
     api_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8000")
     frontend_url: AnyHttpUrl = AnyHttpUrl("http://localhost:3000")
+    docs_enabled: bool = True
+    metrics_enabled: bool = True
+    trust_proxy_headers: bool = False
 
     postgres_host: str = "localhost"
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     postgres_db: str = "novacart"
     postgres_user: str = "novacart"
     postgres_password: SecretStr = SecretStr("")
+    postgres_password_file: Path | None = None
     postgres_connect_timeout_seconds: float = Field(default=3.0, gt=0, le=30)
 
     redis_host: str = "localhost"
     redis_port: int = Field(default=6379, ge=1, le=65535)
     redis_db: int = Field(default=0, ge=0)
     redis_password: SecretStr | None = None
+    redis_password_file: Path | None = None
     redis_connect_timeout_seconds: float = Field(default=3.0, gt=0, le=30)
 
     demo_auth_enabled: bool = False
@@ -44,6 +50,7 @@ class Settings(BaseSettings):
     session_cookie_name: str = "novacart_session"
     session_cookie_secure: bool = False
     session_cookie_samesite: Literal["lax", "strict"] = "lax"
+    csrf_protection_enabled: bool = True
 
     embedding_provider: Literal["fake", "openai"] = "fake"
     embedding_model: str = "text-embedding-3-small"
@@ -103,6 +110,16 @@ class Settings(BaseSettings):
     mock_commerce_webhook_secret: SecretStr = SecretStr("mock-commerce-webhook-secret-32bytes")
     mock_crm_webhook_secret: SecretStr = SecretStr("mock-crm-webhook-secret-at-least-32")
 
+    @staticmethod
+    def _secret_from_file(path: Path, name: str) -> SecretStr:
+        try:
+            value = path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise ValueError(f"Cannot read {name} secret file") from exc
+        if not value:
+            raise ValueError(f"{name} secret file is empty")
+        return SecretStr(value)
+
     @computed_field(repr=False)  # type: ignore[prop-decorator]
     @property
     def database_url(self) -> str:
@@ -117,6 +134,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_provider_credentials(self) -> "Settings":
+        if self.postgres_password_file:
+            self.postgres_password = self._secret_from_file(
+                self.postgres_password_file, "PostgreSQL password"
+            )
+        if self.redis_password_file:
+            self.redis_password = self._secret_from_file(self.redis_password_file, "Redis password")
         if self.chunk_overlap_words >= self.chunk_size_words:
             raise ValueError("Chunk overlap must be smaller than chunk size")
         if self.app_env == "production" and self.demo_auth_enabled:
@@ -125,10 +148,76 @@ class Settings(BaseSettings):
             raise ValueError("Demo authentication requires a demo staff password")
         if self.app_env == "production" and not self.session_cookie_secure:
             raise ValueError("Production session cookies must be secure")
+        if self.app_env == "production":
+            # Provider-safety errors stay first so operators see the most actionable cause.
+            if self.embedding_provider == "fake":
+                raise ValueError("Fake embeddings cannot be enabled in production")
+            if self.reranker_provider == "deterministic":
+                raise ValueError("Deterministic reranking cannot be enabled in production")
+            weak = {
+                "",
+                "password",
+                "changeme",
+                "replace-with-a-strong-local-password",
+                "development-action-secret-change-me-32-bytes",
+            }
+            postgres_secret = self.postgres_password.get_secret_value().lower()
+            if (
+                postgres_secret in weak
+                or postgres_secret.startswith(("replace-", "read-from-", "inject-"))
+                or len(postgres_secret) < 24
+            ):
+                raise ValueError("Production PostgreSQL password is missing or weak")
+            action_secret = self.action_secret.get_secret_value().lower()
+            if (
+                action_secret in weak
+                or action_secret.startswith(("replace-", "read-from-", "inject-"))
+                or len(action_secret) < 32
+            ):
+                raise ValueError("Production action secret is missing or weak")
+            if self.docs_enabled:
+                raise ValueError("API documentation must be disabled in production")
+            if not self.csrf_protection_enabled:
+                raise ValueError("CSRF protection must be enabled in production")
+            if self.log_level == "DEBUG":
+                raise ValueError("Debug logging cannot be enabled in production")
+            if str(self.api_url).lower().startswith("http://") or str(
+                self.frontend_url
+            ).lower().startswith("http://"):
+                raise ValueError("Production public URLs must use HTTPS")
+            if self.postgres_user.lower() in {"postgres", "root", "novacart"}:
+                raise ValueError("Production must use a dedicated restricted runtime database role")
+            if self.redis_password is None or len(self.redis_password.get_secret_value()) < 24:
+                raise ValueError("Production Redis password is missing or weak")
+            if any(
+                value.get_secret_value().lower().startswith(("replace-", "read-from-", "inject-"))
+                for value in (
+                    self.mock_commerce_internal_api_key,
+                    self.mock_crm_internal_api_key,
+                    self.mock_commerce_webhook_secret,
+                    self.mock_crm_webhook_secret,
+                )
+            ):
+                raise ValueError("Production provider secrets must replace all placeholders")
+            known_webhook_secrets = {
+                "mock-commerce-webhook-secret-32bytes",
+                "mock-crm-webhook-secret-at-least-32",
+            }
+            if (
+                self.mock_commerce_webhook_secret.get_secret_value() in known_webhook_secrets
+                or self.mock_crm_webhook_secret.get_secret_value() in known_webhook_secrets
+            ):
+                raise ValueError("Production webhook secrets must replace development defaults")
         if self.embedding_provider == "openai" and not (
             self.openai_api_key and self.openai_api_key.get_secret_value().strip()
         ):
             raise ValueError("OpenAI embedding mode requires an API key")
+        if (
+            self.app_env == "production"
+            and self.openai_api_key
+            and self.openai_api_key.get_secret_value().lower().startswith(("replace-", "inject-"))
+        ):
+            raise ValueError("Production OpenAI credential must replace its placeholder")
         if self.app_env == "production" and self.embedding_provider == "fake":
             raise ValueError("Fake embeddings cannot be enabled in production")
         if self.app_env == "production" and self.reranker_provider == "deterministic":

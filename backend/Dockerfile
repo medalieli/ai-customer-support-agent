@@ -1,27 +1,38 @@
 # syntax=docker/dockerfile:1.7
+FROM python:3.12.11-slim-bookworm AS builder
+
+ENV PIP_NO_CACHE_DIR=1 VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$PATH
+RUN python -m venv /opt/venv
+WORKDIR /build
+COPY requirements.txt pyproject.toml ./
+RUN pip install --upgrade "pip==25.2" \
+    && pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.14.0+cpu" \
+    && pip install -r requirements.txt
+COPY app ./app
+COPY migrations ./migrations
+COPY alembic.ini ./
+COPY knowledge-base ./knowledge-base
+COPY evaluation ./evaluation
+RUN pip install --no-deps .
+
 FROM python:3.12.11-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
+
+RUN apt-get update && apt-get install --no-install-recommends -y postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 10001 novacart \
     && useradd --system --uid 10001 --gid novacart --create-home novacart
 
 WORKDIR /app
-COPY requirements.txt ./
-RUN pip install --upgrade "pip==25.2" \
-    && pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.14.0+cpu" \
-    && pip install -r requirements.txt
-
-COPY pyproject.toml ./
-COPY app ./app
-COPY alembic.ini ./
-COPY migrations ./migrations
-COPY knowledge-base ./knowledge-base
-COPY evaluation ./evaluation
-RUN pip install --no-deps . \
-    && mkdir -p /models \
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /build /app
+RUN mkdir -p /models \
     && chown novacart:novacart /models
 
 USER novacart

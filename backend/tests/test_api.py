@@ -34,6 +34,8 @@ async def test_root_response(client: AsyncClient) -> None:
         "status": "foundation_ready",
         "docs": "/docs",
     }
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
 
 
 @pytest.mark.asyncio

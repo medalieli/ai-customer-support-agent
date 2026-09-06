@@ -1,0 +1,4 @@
+# Apply after compose.observability.yaml in production-like mode; no telemetry UI is public.
+services:
+  grafana:
+    ports: !reset []

@@ -136,6 +136,12 @@ class MemoryTicketCrm:
             )
         return self.messages[key]
 
+    async def list_ticket_messages(
+        self, context: ProviderContext, ticket_ref: str
+    ) -> list[TicketMessage]:
+        del context
+        return [message for message in self.messages.values() if message.ticket_ref == ticket_ref]
+
 
 @pytest.fixture
 async def handoff_db() -> AsyncIterator[

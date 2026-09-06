@@ -141,5 +141,8 @@ async def test_demo_reset_guards(
     monkeypatch.setenv(
         "NOVACART_CONFIRM_DEMO_RESET", "RESET_SYNTHETIC_NOVACART" if confirmation else ""
     )
-    with pytest.raises(RuntimeError):
+    if environment == "development" and enabled and confirmation:
         await demo_reset.main()
+    else:
+        with pytest.raises(RuntimeError):
+            await demo_reset.main()

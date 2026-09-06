@@ -125,6 +125,11 @@ class MemoryCrm:
     ) -> TicketMessage:
         raise NotImplementedError
 
+    async def list_ticket_messages(
+        self, context: ProviderContext, ticket_ref: str
+    ) -> list[TicketMessage]:
+        raise NotImplementedError
+
 
 @pytest.fixture
 async def sales_db() -> AsyncIterator[

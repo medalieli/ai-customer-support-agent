@@ -58,6 +58,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         summary="Infrastructure foundation for NovaCart customer support",
         version="0.1.0",
         lifespan=lifespan,
+        docs_url="/docs" if resolved_settings.docs_enabled else None,
+        redoc_url="/redoc" if resolved_settings.docs_enabled else None,
+        openapi_url="/openapi.json" if resolved_settings.docs_enabled else None,
     )
     app.state.settings = resolved_settings
     if resolved_settings.agent_provider == "deterministic":
@@ -73,6 +76,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.agent_handoff_summary_factory = DeterministicHandoffSummaryModel
         app.state.agent_lead_extractor_factory = DeterministicLeadExtractor
     register_error_handlers(app)
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+        if resolved_settings.app_env == "production":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
 
     @app.middleware("http")
     async def telemetry(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -107,7 +122,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def browser_csrf(request: Request, call_next):  # type: ignore[no-untyped-def]
         origin = request.headers.get("origin")
         if (
-            request.method in {"POST", "PUT", "PATCH", "DELETE"}
+            resolved_settings.csrf_protection_enabled
+            and request.method in {"POST", "PUT", "PATCH", "DELETE"}
             and origin
             and origin == str(resolved_settings.frontend_url).rstrip("/")
             and request.headers.get("x-csrf-token") != "novacart-browser-v1"
@@ -136,6 +152,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/metrics", include_in_schema=False)
     async def prometheus_metrics() -> Response:
+        if not resolved_settings.metrics_enabled:
+            return Response(status_code=404)
         return Response(metrics_payload(), media_type="text/plain; version=0.0.4")
 
     @app.get("/", tags=["metadata"], summary="Service metadata")
@@ -143,7 +161,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "name": "NovaCart Support API",
             "status": "foundation_ready",
-            "docs": "/docs",
+            "docs": "/docs" if resolved_settings.docs_enabled else "disabled",
         }
 
     return app

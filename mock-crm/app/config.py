@@ -23,6 +23,10 @@ class Settings(BaseSettings):
             raise ValueError("Internal API key must contain at least 16 characters")
         if self.app_env == "production" and self.failure_simulation_enabled:
             raise ValueError("Failure simulation cannot be enabled in production")
+        if self.app_env == "production" and self.webhook_secret.get_secret_value() == (
+            "mock-crm-webhook-secret-at-least-32"
+        ):
+            raise ValueError("Production webhook secret must replace the development default")
         return self
 
 

@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
+secrets/
+backups/
 node_modules/
 .next/
 __pycache__/

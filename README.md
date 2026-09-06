@@ -1,8 +1,8 @@
 # NovaCart AI Customer Support Agent
 
 NovaCart is a standalone portfolio project for a production-style customer-support platform.
-**Milestones M0 through M13 are complete.** M13 adds customer and staff workspaces, sanitized
-tenant audit timelines, and isolated full-stack browser acceptance coverage.
+**Milestones M0 through M15 are complete.** M15 adds reproducible production-like hardening,
+least-privilege database operation, supply-chain CI, backup/restore drills, and load validation.
 
 The local workflow uses real OpenAI structured extraction only when configured and always uses the
 persistent mock CRM. HubSpot remains credential-gated and is verified with mocked HTTP contracts;
@@ -56,6 +56,23 @@ CRM_PROVIDER=mock
 ```
 
 Mock mode never invokes Shopify or HubSpot, and their credentials may remain empty. Demo identity and provider failure simulation are explicitly enabled only for local development and rejected in production configuration.
+
+## Production-like mode
+
+Production-like mode keeps mock commerce and mock CRM but applies production validation, TLS,
+private service networks, separate migration/runtime database roles, and hardened containers. Follow
+[the operations runbook](docs/PRODUCTION_OPERATIONS.md) to create gitignored secrets and a certificate:
+
+```powershell
+Copy-Item .env.production.example .env.production
+docker compose --env-file .env.production -f compose.yaml -f compose.production.yaml config --quiet
+docker compose --env-file .env.production -f compose.yaml -f compose.production.yaml up --build -d --wait
+```
+
+The only public entry point is `https://localhost:8443`; port `8088` redirects to HTTPS. This mode
+simulates the external commerce/CRM systems. Shopify and HubSpot adapters are contract-tested, not
+live-account verified. Integration mode is selected independently by setting `COMMERCE_PROVIDER=shopify`
+and/or `CRM_PROVIDER=hubspot` plus the documented credentials; no fallback occurs.
 
 M5 connects application-owned provider ports to mock commerce and persistent mock CRM by default. No Shopify or HubSpot account is required. Integration modes are independently selectable:
 
@@ -136,6 +153,21 @@ Set-Location ..
 ```
 
 CI repeats these checks and validates/builds the Compose services. Generated dependency, build, coverage, cache, secret, log, and local-database files are ignored.
+
+Security, operations, and performance commands:
+
+```powershell
+..\.venv\Scripts\python.exe -m pip_audit -r backend/requirements.txt
+..\.venv\Scripts\bandit.exe -q -r backend/app mock-commerce/app mock-crm/app -ll
+Set-Location frontend; npm audit --audit-level=high; Set-Location ..
+powershell -File scripts/backup-postgres.ps1
+powershell -File scripts/restore-drill.ps1
+powershell -File scripts/run-load-test.ps1 -Requests 60 -Concurrency 8
+```
+
+CI also runs secret scanning, container vulnerability scanning, SBOM generation, migration/integration
+tests, and both Compose configuration validations. Every third-party GitHub Action is pinned to an
+immutable commit; the workflows contain no deployment job or credential.
 
 Database integration tests run when `NOVACART_RUN_DB_TESTS=1`; point `NOVACART_POSTGRES_HOST` at a disposable PostgreSQL 17/pgvector database. See [M2 HTTP API](docs/API.md) for endpoints and access rules. Seeded logins use the password configured in `NOVACART_DEMO_STAFF_PASSWORD`; personas are `amira-en`, `lucas-fr`, and the isolation-only `nora-en` in the second tenant.
 
@@ -221,3 +253,5 @@ to AI. Provider writes use only persistent mock commerce and CRM.
 - [Evaluation plan](docs/EVALUATION_PLAN.md)
 - [Demo scenarios](docs/DEMO_SCENARIOS.md)
 - [Architecture decisions](docs/adr/)
+- [Production operations, backup, incidents, and rotation](docs/PRODUCTION_OPERATIONS.md)
+- [Reproducible load validation](performance/README.md)
