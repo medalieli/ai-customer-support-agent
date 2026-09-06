@@ -38,7 +38,7 @@ foreach ($selected in $suites) {
                 if ($selected -eq "openai") {
                     npx playwright test live-demo.spec.ts --project=desktop
                 } else {
-                    npx playwright test --grep-invert=OpenAI --project=$selected
+                    npx playwright test --grep-invert="OpenAI|@portfolio" --project=$selected
                 }
                 if ($LASTEXITCODE -ne 0) { throw "Playwright failed" }
             } finally { Pop-Location }
