@@ -166,6 +166,42 @@ async def test_gateway_timeout_is_bounded() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
+        "My account was hacked",
+        "My card was stolen",
+        "My account has been hacked and I see fraud",
+    ],
+)
+async def test_natural_security_phrasing_forces_safe_escalation(message: str) -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+
+    async def emit(name: str, payload: dict[str, object]) -> None:
+        events.append((name, payload))
+
+    ctx = context()
+    ctx.request_message = message
+    graph = AgentGraph(
+        Settings(app_env="test"),
+        FakeTriage(IntentLabel.KNOWLEDGE),
+        FakeAnswer(),
+        ToolGateway(),
+        ctx,
+        emit,
+        InMemorySaver(),
+    )
+    result = await graph._triage(  # noqa: SLF001 - focused safety regression
+        AgentState(thread_id="security-thread", run_id=str(uuid4()))
+    )
+    assert result["status"] == "escalation_required"
+    assert result["escalation_reason"] == "security_sensitive_account"
+    assert events == [
+        ("escalation_required", {"reason": "security_sensitive_account"})
+    ]
+
+
+@pytest.mark.asyncio
 async def test_read_handlers_minimize_provider_payloads() -> None:
     from datetime import datetime, timezone
     from decimal import Decimal

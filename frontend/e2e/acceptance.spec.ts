@@ -220,7 +220,46 @@ test("provider not-found failure enters a safe handoff", async ({ page }) => {
   await newConversation(page);
   await send(page, "Track my order NC-9999");
   await expect(page.locator(".ownership")).toContainText(/handoff|staff/);
+  await expect(page.locator(".message.assistant").last()).toContainText(
+    /could not find.*order.*your account/i,
+  );
   await expect(page.locator("body")).not.toContainText(/traceback|secret|provider payload/i);
+});
+
+test("open staff and customer workspaces receive new handoffs and replies", async ({ browser }) => {
+  const staffContext = await browser.newContext();
+  const customerContext = await browser.newContext();
+  const staff = await staffContext.newPage();
+  const customer = await customerContext.newPage();
+  try {
+    await staff.goto("/");
+    await staff.getByRole("tab", { name: "Staff" }).click();
+    await staff.getByLabel("Password").fill("synthetic-demo-password");
+    await staff.getByRole("button", { name: "Continue securely" }).click();
+    await expect(staff).toHaveURL(/\/staff$/);
+
+    await customerLogin(customer);
+    await newConversation(customer);
+    await send(customer, "I need a human representative");
+    await expect(customer.locator(".message.assistant").last()).toContainText(
+      /human support ticket/i,
+    );
+
+    const ticketRow = staff.getByRole("button", { name: /explicit human request/i }).last();
+    await expect(ticketRow).toBeVisible({ timeout: 10_000 });
+    await ticketRow.click();
+    await customer.getByLabel("Message NovaCart support").fill("A new customer detail");
+    await customer.getByLabel("Message NovaCart support").press("Enter");
+    await expect(staff.getByText("A new customer detail", { exact: true })).toBeVisible({ timeout: 10_000 });
+
+    await staff.getByRole("button", { name: "Claim" }).click();
+    await staff.getByLabel("Public reply").fill("A live staff reply");
+    await staff.getByRole("button", { name: "Send to customer" }).click();
+    await expect(customer.getByText("A live staff reply", { exact: true })).toBeVisible({ timeout: 10_000 });
+  } finally {
+    await staffContext.close();
+    await customerContext.close();
+  }
 });
 
 test("commerce outage produces a safe handoff without reporting a successful write", async ({ page }) => {

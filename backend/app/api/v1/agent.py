@@ -190,20 +190,27 @@ async def submit_message(
     await session.commit()
 
     if conversation.ownership_state in {"handoff_pending", "staff_active"}:
+        acknowledgement = (
+            "Votre message a été ajouté au dossier humain."
+            if conversation.locale == "fr"
+            else "Your message was added to the human support ticket."
+        )
+        await conversations.add_message(
+            conversation, MessageRole.ASSISTANT, acknowledgement, conversation.locale
+        )
         run.status = conversation.ownership_state
         thread.status = conversation.ownership_state
         await repo.event(run, "handoff_requested", {"status": conversation.ownership_state})
+        await repo.event(
+            run, "response_completed", {"message": acknowledgement, "citations": []}
+        )
         await session.commit()
         return AgentRunResponse(
             run_id=run.id,
             status=run.status,
             duplicate=False,
             checkpoint_version=thread.checkpoint_version,
-            message=(
-                "Votre message a été ajouté au dossier humain."
-                if conversation.locale == "fr"
-                else "Your message was added to the human support ticket."
-            ),
+            message=acknowledgement,
         )
 
     async def emit(event_type: str, data: dict[str, object]) -> None:
@@ -296,6 +303,37 @@ async def submit_message(
                 thread.interrupt_reason = ticket.reason_code
                 await repo.event(run, "handoff_requested", {"reason": ticket.reason_code})
                 await repo.event(run, "ticket_created", {"ticket_id": str(ticket.id)})
+                if not final.messages or final.messages[-1].role != "assistant":
+                    order_not_found = final.escalation_reason == "order_not_found"
+                    if conversation.locale == "fr":
+                        acknowledgement = (
+                            "Je ne trouve pas cette commande dans votre compte. Vérifiez le "
+                            "numéro de commande. Pour protéger la vie privée, je ne peux pas "
+                            "confirmer si elle appartient à un autre client. Un dossier humain "
+                            "a été ouvert et votre message est enregistré."
+                            if order_not_found
+                            else "Je n’ai pas pu vérifier cette demande en toute sécurité. Un "
+                            "dossier d’assistance humaine a été ouvert et votre message est "
+                            "enregistré."
+                        )
+                    else:
+                        acknowledgement = (
+                            "I could not find that order in your account. Check the order number. "
+                            "To protect customer privacy, I cannot confirm whether it belongs to "
+                            "someone else. A human support ticket has been opened and your message "
+                            "is saved."
+                            if order_not_found
+                            else "I could not verify this request safely. A human support ticket "
+                            "has been opened and your message is saved."
+                        )
+                    final.messages.append(
+                        VisibleMessage(role="assistant", content=acknowledgement)
+                    )
+                    await repo.event(
+                        run,
+                        "response_completed",
+                        {"message": acknowledgement, "citations": []},
+                    )
             except HandoffError:
                 run.status = thread.status = "failed"
         thread.checkpoint_version += 1

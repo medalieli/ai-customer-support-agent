@@ -165,8 +165,9 @@ class AgentGraph:
             if explicit_human_request(message)
             else "security_sensitive_account"
             if re.search(
-                r"\b(account hacked|account takeover|stolen card|payment card|fraud|"
-                r"compte pirat[ée]|carte vol[ée]e|fraude)\b",
+                r"\b(account (?:was |is |has been )?hacked|account takeover|"
+                r"(?:stolen card|card (?:was |is |has been )?stolen)|payment card|fraud|"
+                r"compte (?:a été |est )?pirat[ée]|carte (?:a été |est )?vol[ée]e|fraude)\b",
                 lowered,
             )
             else None
@@ -507,12 +508,13 @@ class AgentGraph:
                 "status": "confirmation_required",
             }
         if any(item.status == "failed" for item in results):
+            failed = next(item for item in results if item.status == "failed")
             return {
                 "sanitized_results": results,
                 "citations": citations,
                 "step_count": state.step_count + len(state.selected_tools),
                 "status": "escalation_required",
-                "escalation_reason": "tool_failure",
+                "escalation_reason": failed.error_code or "tool_failure",
             }
         return {
             "sanitized_results": results,
@@ -633,7 +635,12 @@ class AgentGraph:
                 parts.append(order)
         if state.status == "clarification_required":
             address_missing = state.escalation_reason == "missing_or_ambiguous_address"
-            refund_missing = (state.escalation_reason or "").startswith("missing_")
+            refund_missing = bool(
+                re.match(
+                    r"^missing_(?=.*(?:reason|item|quantity|requested_amount|currency|information))",
+                    state.escalation_reason or "",
+                )
+            )
             sales_missing = state.escalation_reason in {
                 "missing_lead_information",
                 "missing_or_invalid_contact_method",

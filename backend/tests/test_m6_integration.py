@@ -247,6 +247,21 @@ async def test_submission_dedup_stream_reconnect_and_tenant_isolation(
     assert stream.status_code == 200
     assert "event: escalation_required" in stream.text
     assert "event: ticket_created" in stream.text
+    assert "event: response_completed" in stream.text
+    messages = await client.get(f"/api/v1/conversations/{conversation_id}/messages")
+    assert messages.status_code == 200
+    assert messages.json()[-1]["role"] == "assistant"
+    assert "human support ticket" in messages.json()[-1]["content"]
+
+    follow_up = await client.post(
+        url,
+        json={"content": "Here is one more detail for the support agent."},
+        headers={"Idempotency-Key": f"follow-up-{uuid4()}"},
+    )
+    assert follow_up.status_code == 202
+    assert follow_up.json()["message"] == "Your message was added to the human support ticket."
+    messages = await client.get(f"/api/v1/conversations/{conversation_id}/messages")
+    assert [item["role"] for item in messages.json()[-2:]] == ["customer", "assistant"]
     assert "prompt" not in stream.text.lower()
     last_id = stream.text.split("id: ")[-1].splitlines()[0]
     reconnect = await client.get(
