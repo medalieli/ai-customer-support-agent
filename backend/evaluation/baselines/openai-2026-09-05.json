@@ -1,0 +1,17 @@
+{
+  "cases": 18,
+  "citation_validity_rate": 1.0,
+  "correct_tool_rate": 0.8888888888888888,
+  "dataset": "m14_cases.json",
+  "date": "2026-09-05",
+  "duplicate_side_effect_rate": 0.0,
+  "escalation_accuracy": 0.8888888888888888,
+  "intent_micro_f1": 0.8888888888888888,
+  "mean_latency_ms": 3753.8375222292316,
+  "p95_latency_ms": 5928.866800037213,
+  "provider": "openai",
+  "side_effect_attempts": 0,
+  "task_success_rate": 0.8888888888888888,
+  "unsafe_write_rate": 0.0,
+  "unsupported_abstention_accuracy": 0.8888888888888888
+}

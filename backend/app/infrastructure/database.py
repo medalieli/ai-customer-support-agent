@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import Settings
+from app.observability import span
 
 
 def create_database_engine(settings: Settings) -> AsyncEngine:
@@ -27,8 +28,9 @@ async def close_database_engine(engine: AsyncEngine) -> None:
 
 async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
     factory: async_sessionmaker[AsyncSession] = request.app.state.db_session_factory
-    async with factory() as session:
-        yield session
+    with span("postgresql.session", **{"db.system": "postgresql"}):
+        async with factory() as session:
+            yield session
 
 
 async def set_tenant_scope(session: AsyncSession, organization_id: UUID) -> None:

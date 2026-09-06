@@ -17,6 +17,7 @@ from app.infrastructure.database import set_tenant_scope
 from app.knowledge.extraction import FileValidationError, validate_file
 from app.knowledge.ingestion import content_checksum
 from app.knowledge.retrieval import Citation, retrieve_passages, validate_citation
+from app.observability import job_carrier, observe_queue_depth
 from app.services.auth import AuthorizationError, ResourceNotFoundError, require_admin
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -86,8 +87,10 @@ async def queue_ingestion(request: Request, organization_id: UUID, version_id: U
         "ingest_document_version",
         str(organization_id),
         str(version_id),
+        job_carrier(),
         _job_id=f"knowledge:{organization_id}:{version_id}",
     )
+    await observe_queue_depth(queue)
 
 
 def version_response(version: DocumentVersion) -> VersionResponse:

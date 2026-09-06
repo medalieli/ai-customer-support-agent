@@ -51,3 +51,22 @@ Both runs used 1,536-dimensional vectors, the same 29 cases and `top_k=5`. The r
 | OpenAI `text-embedding-3-small` + multilingual cross-encoder (real semantic baseline) | 0.909091 | 0.909091 | 0 | 1061.870 ms | 1011.193 ms |
 
 The p95 being lower than the mean is possible here because one cold-start/model initialization observation raises the mean while the nearest-rank p95 statistic excludes that single maximum. The real baseline meets the M4 overall Recall@5 gate; two difficult paraphrases remain misses and are retained as regression targets rather than rewritten to inflate the score.
+
+## M14 operational evaluation
+
+`python -m app.evaluation --provider deterministic --write-baseline` executes the versioned
+English/French routing and safety corpus in `backend/evaluation/m14_cases.json`. This component
+baseline measures intent micro-F1, correct-tool selection, routing task success, unsupported
+abstention, unsafe tool selection, escalation correctness, and latency from executed predictions.
+Its citation measure establishes that citation-bearing cases select retrieval; actual citation
+receipts, confirmation safety, workflow success, provider failures, and duplicate side effects are
+measured by the deterministic API and browser suites. Because this routing evaluator performs no
+external writes, its reports include `side_effect_attempts: 0`; the zero duplicate-side-effect rate
+must not be interpreted as a write-workflow result. Provider-failure cases measure selection of the
+safe failure-handling path, never a successful external write.
+
+The explicit manual command is `python -m app.evaluation --provider openai --write-baseline`.
+It requires a real `NOVACART_OPENAI_API_KEY`, labels the report `openai`, and fails rather than
+falling back to deterministic mode. Dated real and deterministic reports are stored separately.
+Scores are generated only by an executed run; absent credentials mean no real-provider score is
+reported.

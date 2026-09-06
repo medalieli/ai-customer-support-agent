@@ -49,6 +49,7 @@ jobs:
       - run: ruff format --check .
       - run: ruff check .
       - run: mypy app tests
+      - run: python -m app.evaluation --provider deterministic
       - run: pytest
 
   frontend:

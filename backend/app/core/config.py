@@ -19,6 +19,9 @@ class Settings(BaseSettings):
 
     app_env: Literal["development", "test", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    service_name: str = "novacart-api"
+    otel_enabled: bool = False
+    otel_exporter_endpoint: AnyHttpUrl = AnyHttpUrl("http://otel-collector:4318")
     api_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8000")
     frontend_url: AnyHttpUrl = AnyHttpUrl("http://localhost:3000")
 
@@ -79,6 +82,14 @@ class Settings(BaseSettings):
     agent_provider: Literal["openai", "deterministic"] = "openai"
     agent_model_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     agent_max_steps: int = Field(default=8, ge=1, le=20)
+    customer_rate_limit_per_minute: int = Field(default=30, ge=1, le=1000)
+    actor_rate_limit_per_minute: int = Field(default=12, ge=1, le=1000)
+    tenant_concurrent_runs: int = Field(default=8, ge=1, le=100)
+    actor_concurrent_runs: int = Field(default=2, ge=1, le=20)
+    tenant_daily_token_budget: int = Field(default=2_000_000, ge=1000)
+    tenant_daily_cost_budget_usd: float = Field(default=25.0, ge=0.01)
+    openai_input_cost_per_million_usd: float = Field(default=0.25, ge=0)
+    openai_output_cost_per_million_usd: float = Field(default=2.0, ge=0)
     agent_min_confidence: float = Field(default=0.65, ge=0, le=1)
     action_secret: SecretStr = SecretStr("development-action-secret-change-me-32-bytes")
     action_confirmation_ttl_seconds: int = Field(default=600, ge=30, le=3600)

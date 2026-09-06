@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.state import CitationRef, RiskLevel, SanitizedResult
 from app.core.config import Settings
 from app.knowledge.retrieval import retrieve_passages
+from app.observability import TOOLS, bounded, span
 from app.providers.errors import ProviderError
 from app.providers.models import ProviderContext, ProviderErrorCode
 from app.providers.ports import CommerceProviderV1, CrmProviderV1
@@ -352,6 +353,18 @@ class ToolGateway:
         self.registry = registry or build_registry()
 
     async def execute(
+        self, name: str, arguments: dict[str, object], context: ToolContext
+    ) -> tuple[SanitizedResult, list[CitationRef]]:
+        allowed_tools = set(self.registry) | {"other"}
+        metric_name = bounded(name, allowed_tools)
+        with span("agent.tool", **{"tool.name": metric_name}):
+            result = await self._execute(name, arguments, context)
+        TOOLS.labels(
+            metric_name, bounded(result[0].status, {"completed", "failed", "blocked"})
+        ).inc()
+        return result
+
+    async def _execute(
         self, name: str, arguments: dict[str, object], context: ToolContext
     ) -> tuple[SanitizedResult, list[CitationRef]]:
         definition = self.registry.get(name)

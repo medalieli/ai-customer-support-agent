@@ -7,6 +7,7 @@ export type AgentRun = { run_id: string; status: string; duplicate: boolean; che
 export type Ticket = { id: string; conversation_id: string; reason_code: string; priority: string; status: string; assigned_staff_id: string | null; summary: Record<string, unknown>; version: number; created_at: string };
 export type AuditTimelineItem = { id: string; category: string; action: string; outcome: string; reason_code: string | null; actor_type: string; occurred_at: string; metadata: Record<string, unknown> };
 export type AuditTimelinePage = { items: AuditTimelineItem[]; next_cursor: string | null };
+export type Analytics = { range: string; generated_at: string; conversation_volume: number; containment_rate: number; escalation_rate: number; tool_success_rate: number; average_response_latency_ms: number; p95_response_latency_ms: number; citation_success_rate: number; confirmations: Record<string, number>; aggregates: Record<string, number>; provider_health: Record<string, number>; webhooks: Record<string, number> };
 export type ApiProblem = { code: string; message: string; status: number };
 
 const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";

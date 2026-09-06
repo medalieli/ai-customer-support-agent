@@ -1,0 +1,59 @@
+name: novacart-support
+
+services:
+  api:
+    environment:
+      NOVACART_OTEL_ENABLED: "true"
+      NOVACART_OTEL_EXPORTER_ENDPOINT: http://otel-collector:4318
+    networks: [backend, edge, observability]
+  worker:
+    environment:
+      NOVACART_OTEL_ENABLED: "true"
+      NOVACART_OTEL_EXPORTER_ENDPOINT: http://otel-collector:4318
+    networks: [backend, observability]
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.136.0
+    profiles: [observability]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    networks: [observability]
+  tempo:
+    image: grafana/tempo:2.8.2
+    profiles: [observability]
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    networks: [observability]
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    profiles: [observability]
+    command: ["--config.file=/etc/prometheus/prometheus.yaml", "--storage.tsdb.path=/prometheus"]
+    volumes:
+      - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./observability/alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - prometheus_data:/prometheus
+    networks: [observability]
+  grafana:
+    image: grafana/grafana:12.1.1
+    profiles: [observability]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports: ["127.0.0.1:${GRAFANA_HOST_PORT:-3001}:3000"]
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    networks: [observability, edge]
+
+networks:
+  observability:
+    internal: true
+
+volumes:
+  tempo_data:
+  prometheus_data:
+  grafana_data:

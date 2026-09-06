@@ -26,6 +26,7 @@ from app.domain.models import (
     SupportTicket,
     TicketStatus,
 )
+from app.observability import record_openai_usage
 from app.providers.errors import ProviderError
 from app.providers.models import ProviderContext, SupportTicketUpsert
 from app.providers.ports import CrmProviderV1
@@ -59,6 +60,7 @@ class OpenAIHandoffSummaryModel:
             max_retries=0,
         )
         self.model = settings.agent_model
+        self.settings = settings
 
     async def summarize(
         self, visible_messages: list[str], allowed_order_refs: list[str], reason_code: str
@@ -82,6 +84,7 @@ class OpenAIHandoffSummaryModel:
             ),
             text_format=SummaryDraft,
         )
+        record_openai_usage(response, self.settings, "summary")
         if response.output_parsed is None:
             raise ValueError("handoff summary missing")
         return response.output_parsed

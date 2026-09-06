@@ -1,6 +1,7 @@
 import re
 import sys
 from collections.abc import Awaitable, Callable
+from inspect import isawaitable
 from typing import Any, Literal, cast
 from uuid import UUID
 
@@ -23,6 +24,7 @@ from app.agent.tools import ToolContext, ToolGateway
 from app.agent.triage import TriageModel, deterministic_risk, validate_triage
 from app.core.config import Settings
 from app.knowledge.retrieval import Citation, validate_citation
+from app.observability import span
 from app.providers.order_numbers import extract_order_number
 from app.services.address_actions import AddressActionError, AddressActionService
 from app.services.handoff import explicit_human_request
@@ -108,11 +110,13 @@ class AgentGraph:
         self.context = context
         self.emit = emit
         builder = StateGraph(AgentState)
-        builder.add_node("triage", self._triage)
-        builder.add_node("plan", self._plan)
-        builder.add_node("execute_tools", self._execute_tools)
-        builder.add_node("interrupt", self._interrupt)
-        builder.add_node("compose", self._compose)
+        builder.add_node("triage", cast(Any, self._observed_node("triage", self._triage)))
+        builder.add_node("plan", cast(Any, self._observed_node("plan", self._plan)))
+        builder.add_node(
+            "execute_tools", cast(Any, self._observed_node("execute_tools", self._execute_tools))
+        )
+        builder.add_node("interrupt", cast(Any, self._observed_node("interrupt", self._interrupt)))
+        builder.add_node("compose", cast(Any, self._observed_node("compose", self._compose)))
         builder.add_edge(START, "triage")
         builder.add_edge("triage", "plan")
         builder.add_conditional_edges(
@@ -126,6 +130,27 @@ class AgentGraph:
         builder.add_edge("interrupt", END)
         builder.add_edge("compose", END)
         self.compiled = builder.compile(checkpointer=checkpointer)
+
+    def _observed_node(
+        self,
+        name: str,
+        node: Callable[[AgentState], Awaitable[dict[str, object]] | dict[str, object]],
+    ) -> Callable[[AgentState], Awaitable[dict[str, object]]]:
+        async def observed(state: AgentState) -> dict[str, object]:
+            # State content is intentionally excluded. These identifiers support
+            # correlation without becoming metric labels or exported payload data.
+            with span(
+                f"langgraph.node.{name}",
+                **{
+                    "agent.node": name,
+                    "agent.run_id": str(state.run_id),
+                    "agent.thread_id": state.thread_id,
+                },
+            ):
+                result = node(state)
+                return await result if isawaitable(result) else result
+
+        return observed
 
     def _bounded(self, state: AgentState) -> bool:
         return state.step_count >= self.settings.agent_max_steps

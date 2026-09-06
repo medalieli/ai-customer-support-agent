@@ -7,6 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models import AgentEvent, AgentRun, AgentThread
 from app.infrastructure.database import set_tenant_scope
+from app.observability import (
+    AGENT_OUTCOMES,
+    CITATIONS,
+    CONFIRMATIONS,
+    INTENTS,
+    LIFECYCLE,
+    TOOLS,
+    bounded,
+    span,
+)
 from app.services.audit import AuditService
 
 
@@ -89,14 +99,88 @@ class AgentRepository:
                 AgentThread.id == run.thread_id,
             )
         )
-        await AuditService(self.session).record(
-            run.organization_id,
-            "agent",
-            f"agent.{event_type}",
-            "recorded",
-            target_type="conversation",
-            target_id=conversation_id,
-        )
+        with span(
+            "agent.event",
+            **{
+                "agent.event.type": event_type[:60],
+                "novacart.run_id": str(run.id),
+                "novacart.conversation_id": str(conversation_id or ""),
+            },
+        ):
+            await AuditService(self.session).record(
+                run.organization_id,
+                "agent",
+                f"agent.{event_type}",
+                "recorded",
+                target_type="conversation",
+                target_id=conversation_id,
+            )
+        locale = bounded(str(payload.get("locale", "other")), {"en", "fr"})
+        if event_type == "triage_completed":
+            raw_intents = payload.get("intents")
+            for intent in raw_intents if isinstance(raw_intents, list) else []:
+                INTENTS.labels(
+                    bounded(
+                        str(intent),
+                        {
+                            "knowledge_question",
+                            "order_status",
+                            "account_address_change",
+                            "refund_request",
+                            "sales_lead",
+                            "human_help",
+                            "unsupported_uncertain",
+                        },
+                    ),
+                    locale,
+                ).inc()
+        if event_type in {"tool_completed", "tool_failed"}:
+            TOOLS.labels(
+                bounded(
+                    str(payload.get("tool", "other")),
+                    {
+                        "search_knowledge_base",
+                        "get_order_status",
+                        "propose_address_change",
+                        "propose_refund",
+                        "propose_sales_lead",
+                    },
+                ),
+                "success" if event_type == "tool_completed" else "failure",
+            ).inc()
+        if event_type in {
+            "response_completed",
+            "clarification_required",
+            "escalation_required",
+            "handoff_requested",
+        }:
+            outcome = {
+                "response_completed": "success",
+                "clarification_required": "clarification",
+                "escalation_required": "escalation",
+                "handoff_requested": "escalation",
+            }[event_type]
+            AGENT_OUTCOMES.labels(outcome, locale).inc()
+        if event_type in {"action_completed", "action_cancelled", "action_failed"}:
+            reason = str(payload.get("reason_code", ""))
+            outcome = (
+                "approved"
+                if event_type == "action_completed"
+                else "expired"
+                if reason == "expired"
+                else "conflict"
+                if "conflict" in reason
+                else "denied"
+                if event_type == "action_cancelled"
+                else "failure"
+            )
+            CONFIRMATIONS.labels("other", outcome).inc()
+        if event_type == "citation_rejected":
+            CITATIONS.labels("failure", locale).inc()
+        if event_type in {"ticket_created", "handoff_requested"}:
+            LIFECYCLE.labels(
+                "ticket" if event_type == "ticket_created" else "handoff", "created"
+            ).inc()
         sequence = await self.session.scalar(
             select(func.coalesce(func.max(AgentEvent.sequence_number), 0)).where(
                 AgentEvent.run_id == run.id

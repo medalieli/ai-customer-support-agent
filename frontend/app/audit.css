@@ -6,3 +6,17 @@
 .audit-timeline p { margin: .3rem 0; }
 .audit-kind { align-self: start; text-align: center; border-radius: 99px; padding: .3rem .5rem; background: #edf3f9; color: var(--blue); font-size: .7rem; font-weight: 800; text-transform: uppercase; }
 @media (max-width: 480px) { .audit-timeline li { grid-template-columns: 1fr; } }
+.analytics { width: min(1100px, calc(100% - 2.5rem)); margin: 1.5rem auto; }
+.analytics > header { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+.analytics select { display: block; min-width: 8rem; margin-top: .35rem; }
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .8rem; }
+.metric-grid article, .analytics-groups article { background: white; border: 1px solid var(--line); border-radius: 13px; padding: 1rem; }
+.metric-grid span { color: var(--muted); font-size: .8rem; }
+.metric-grid strong { display: block; margin-top: .35rem; font-size: 1.45rem; }
+.analytics-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin-top: .8rem; }
+.analytics-groups h2 { font-size: 1rem; margin: 0 0 .7rem; }
+.analytics-groups dl, .analytics-groups dl div { margin: 0; }
+.analytics-groups dl div { display: flex; justify-content: space-between; gap: 1rem; padding: .35rem 0; border-bottom: 1px solid var(--line); }
+.analytics-groups dt { color: var(--muted); text-transform: capitalize; }
+.analytics-groups dd { margin: 0; font-weight: 700; }
+@media (max-width: 640px) { .analytics > header { align-items: stretch; flex-direction: column; } .analytics-groups { grid-template-columns: 1fr; } }

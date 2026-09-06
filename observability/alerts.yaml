@@ -1,0 +1,24 @@
+groups:
+  - name: novacart-local-slos
+    rules:
+      - alert: ApiAvailabilityBurn
+        expr: sum(rate(novacart_http_requests_total{status_class=~"5.."}[5m])) / clamp_min(sum(rate(novacart_http_requests_total[5m])), 1) > 0.01
+        for: 10m
+      - alert: ApiP95LatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(novacart_http_request_duration_seconds_bucket[10m]))) > 2
+        for: 10m
+      - alert: AgentFailureRateHigh
+        expr: sum(rate(novacart_agent_outcomes_total{outcome="failure"}[10m])) / clamp_min(sum(rate(novacart_agent_outcomes_total[10m])), 1) > 0.05
+        for: 10m
+      - alert: CitationFailuresHigh
+        expr: sum(rate(novacart_citation_validation_total{outcome="failed"}[10m])) > 0.05
+        for: 10m
+      - alert: ProviderErrorsHigh
+        expr: sum(rate(novacart_provider_requests_total{outcome=~"failure|rate_limited"}[10m])) > 0.1
+        for: 10m
+      - alert: WorkerBacklog
+        expr: novacart_worker_queue_depth > 100
+        for: 10m
+      - alert: DeadLetterEvent
+        expr: increase(novacart_worker_jobs_total{outcome="dead_letter"}[10m]) > 0
+        for: 1m

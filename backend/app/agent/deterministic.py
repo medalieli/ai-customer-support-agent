@@ -27,6 +27,8 @@ class DeterministicTriageModel:
             label = IntentLabel.SALES_LEAD
         elif any(word in text for word in ("order", "track", "commande", "suivi")):
             label = IntentLabel.ORDER_STATUS
+        elif any(word in text for word in ("weather", "bitcoin", "recipe", "météo", "recette")):
+            label = IntentLabel.UNSUPPORTED
         else:
             label = IntentLabel.KNOWLEDGE
         return TriageOutput(intents=[IntentScore(label=label, confidence=0.99)])

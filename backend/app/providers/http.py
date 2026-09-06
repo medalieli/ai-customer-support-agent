@@ -3,7 +3,9 @@ from collections.abc import Mapping
 from typing import Any
 
 import httpx
+from opentelemetry.propagate import inject
 
+from app.observability import PROVIDER_LATENCY, PROVIDERS, Timer, bounded, span
 from app.providers.errors import ProviderError
 from app.providers.models import ProviderErrorCode
 
@@ -28,24 +30,54 @@ class ProviderHttpClient:
         self, method: str, path: str, *, retry_safe: bool = False, **kwargs: Any
     ) -> httpx.Response:
         can_retry = method == "GET" or retry_safe
+        provider = bounded(
+            str(self.client.base_url.host),
+            {"mock-commerce", "mock-crm", "api.shopify.com", "api.hubapi.com"},
+        )
+        operation = "read" if method == "GET" else "write"
+        timer = Timer.start()
+        carrier: dict[str, str] = {}
+        inject(carrier)
+        headers = dict(kwargs.pop("headers", {}) or {})
+        headers.update(carrier)
+        kwargs["headers"] = headers
         for attempt in range(self.retries + 1):
             try:
-                response = await self.client.request(method, path, **kwargs)
+                with span(
+                    "provider.request",
+                    **{"provider.name": provider, "provider.operation": operation},
+                ):
+                    response = await self.client.request(method, path, **kwargs)
             except httpx.TimeoutException as exc:
                 if attempt < self.retries and can_retry:
+                    PROVIDERS.labels(provider, operation, "retry").inc()
                     await asyncio.sleep(0)
                     continue
+                PROVIDERS.labels(provider, operation, "timeout").inc()
+                PROVIDER_LATENCY.labels(provider, operation).observe(timer.seconds())
                 raise ProviderError(ProviderErrorCode.TIMEOUT, retryable=True) from exc
             except httpx.HTTPError as exc:
                 if attempt < self.retries and can_retry:
+                    PROVIDERS.labels(provider, operation, "retry").inc()
                     await asyncio.sleep(0)
                     continue
+                PROVIDERS.labels(provider, operation, "failure").inc()
+                PROVIDER_LATENCY.labels(provider, operation).observe(timer.seconds())
                 raise ProviderError(ProviderErrorCode.UNAVAILABLE, retryable=True) from exc
             if response.status_code >= 500 and attempt < self.retries and can_retry:
+                PROVIDERS.labels(provider, operation, "retry").inc()
                 await asyncio.sleep(0)
                 continue
             if response.is_error:
+                PROVIDERS.labels(
+                    provider,
+                    operation,
+                    "rate_limited" if response.status_code == 429 else "failure",
+                ).inc()
+                PROVIDER_LATENCY.labels(provider, operation).observe(timer.seconds())
                 self._raise(response)
+            PROVIDERS.labels(provider, operation, "success").inc()
+            PROVIDER_LATENCY.labels(provider, operation).observe(timer.seconds())
             return response
         raise ProviderError(ProviderErrorCode.UNAVAILABLE, retryable=True)
 

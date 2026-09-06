@@ -1,0 +1,17 @@
+{
+  "cases": 18,
+  "citation_validity_rate": 1.0,
+  "correct_tool_rate": 1.0,
+  "dataset": "m14_cases.json",
+  "date": "2026-09-05",
+  "duplicate_side_effect_rate": 0.0,
+  "escalation_accuracy": 1.0,
+  "intent_micro_f1": 1.0,
+  "mean_latency_ms": 0.008822257061385445,
+  "p95_latency_ms": 0.03370002377778292,
+  "provider": "deterministic",
+  "side_effect_attempts": 0,
+  "task_success_rate": 1.0,
+  "unsafe_write_rate": 0.0,
+  "unsupported_abstention_accuracy": 1.0
+}

@@ -18,7 +18,7 @@ Status vocabulary: `COMPLETE`, `PLANNED`, `BLOCKED`. A milestone is complete onl
 | M11 | COMPLETE | Durable human escalation and staff handoff | Deterministic escalation overrides, grounded/fallback summaries, one active tenant ticket, mock CRM synchronization, staff RBAC, optimistic ownership transitions, private notes, sanitized events/audits, and restart persistence pass; no external notifications or live HubSpot calls. |
 | M12 | COMPLETE | Secure provider webhooks and asynchronous synchronization | Raw Shopify/HubSpot contract verification, trusted tenant connections, encrypted PostgreSQL inbox, idempotent ARQ processing, ordering, retries/dead-letter, tenant-scoped inspection/retry, and signed mock commerce/CRM delivery pass without live provider requests. |
 | M13 | PLANNED | HubSpot live validation | Credential-gated developer-test-account validation of the M5 adapter passes with synthetic contacts, notes and cleanup. |
-| M14 | PLANNED | Bilingual UX and accessibility | EN/FR scenario suite, locale fallback disclosure, WCAG-oriented keyboard/screen-reader review pass. |
+| M14 | COMPLETE | Production observability, evaluation, analytics and cost controls | Content-free OTel traces, bounded metrics, tenant analytics, Redis controls, bilingual safety evaluation, SLOs and local dashboards. |
 | M15 | PLANNED | Security hardening | Threat-model tests, secret scanning, dependency scanning, rate limits and authorization review pass. |
 | M16 | PLANNED | Evaluation and observability | Quality/safety regression suite, traces, metrics, dashboards and alert runbooks meet thresholds. |
 | M17 | PLANNED | Public portfolio release | Mock-only deployment, synthetic-data verification, demo scripts, architecture narrative and rollback/runbook approved. |

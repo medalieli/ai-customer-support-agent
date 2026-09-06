@@ -22,6 +22,13 @@ services:
       NOVACART_RETRIEVAL_MIN_RERANKER_SCORE: "-100"
       NOVACART_DEMO_AUTH_ENABLED: "true"
       NOVACART_DEMO_STAFF_PASSWORD: synthetic-demo-password
+      # Browser scenarios share synthetic actors; controls have dedicated limit tests.
+      NOVACART_CUSTOMER_RATE_LIMIT_PER_MINUTE: "1000"
+      NOVACART_ACTOR_RATE_LIMIT_PER_MINUTE: "1000"
+      NOVACART_TENANT_CONCURRENT_RUNS: "100"
+      NOVACART_ACTOR_CONCURRENT_RUNS: "20"
+      NOVACART_TENANT_DAILY_TOKEN_BUDGET: "100000000"
+      NOVACART_TENANT_DAILY_COST_BUDGET_USD: "10000"
     command: ["sh", "-c", "alembic upgrade head && python -m app.seed && python -m app.knowledge.seed && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
   worker:
     environment:

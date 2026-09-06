@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.domain.models import ConsentRecord, PendingAction, RecordStatus
+from app.observability import record_openai_usage
 from app.providers.errors import ProviderError
 from app.providers.models import ContactUpsert, ProviderContext, ProviderErrorCode, SalesLeadUpsert
 from app.providers.ports import CrmProviderV1
@@ -53,6 +54,7 @@ class OpenAILeadExtractor:
             max_retries=0,
         )
         self.model = settings.agent_model
+        self.settings = settings
 
     async def extract(self, message: str) -> LeadFields:
         response = await self.client.responses.parse(
@@ -68,6 +70,7 @@ class OpenAILeadExtractor:
             input=message,
             text_format=LeadFields,
         )
+        record_openai_usage(response, self.settings, "lead")
         if response.output_parsed is None:
             raise ValueError("lead extraction missing")
         return response.output_parsed

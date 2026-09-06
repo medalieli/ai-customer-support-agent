@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.api.dependencies import CurrentPrincipal, DatabaseSession, RequestSettings
 from app.domain.models import Role, WebhookEvent, WebhookStatus
+from app.observability import job_carrier, observe_queue_depth
 from app.services.auth import AuthorizationError, ResourceNotFoundError
 from app.services.webhooks import WebhookRejected, accept
 
@@ -41,8 +42,9 @@ async def receive(
         raise HTTPException(409, "event_payload_conflict")
     if outcome == "accepted":
         await request.app.state.job_queue.enqueue_job(
-            "process_provider_webhook", str(event.id), _job_id=f"webhook:{event.id}"
+            "process_provider_webhook", str(event.id), job_carrier(), _job_id=f"webhook:{event.id}"
         )
+        await observe_queue_depth(request.app.state.job_queue)
     return {"id": str(event.id), "status": outcome}
 
 
@@ -116,5 +118,8 @@ async def retry(
         raise HTTPException(409, "event_not_retryable")
     item.status, item.safe_error, item.next_attempt_at = WebhookStatus.RECEIVED, None, None
     await session.commit()
-    await request.app.state.job_queue.enqueue_job("process_provider_webhook", str(item.id))
+    await request.app.state.job_queue.enqueue_job(
+        "process_provider_webhook", str(item.id), job_carrier()
+    )
+    await observe_queue_depth(request.app.state.job_queue)
     return _view(item)

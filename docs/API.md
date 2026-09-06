@@ -1,5 +1,12 @@
 # M2 HTTP API
 
+## M14 operational APIs
+
+`GET /metrics` exposes content-free Prometheus metrics with fixed, bounded label sets. It never
+uses tenant, actor, conversation, order, or message values as labels. `GET /api/v1/staff/analytics`
+accepts `range=24h|7d|30d|90d` and returns tenant-scoped operational aggregates to Support and
+Admin staff. Customers are denied, and the response contains no raw conversation or customer data.
+
 ## M11 human handoff API
 
 Escalation creates at most one active tenant-scoped ticket per conversation and changes ownership

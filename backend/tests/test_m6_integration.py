@@ -103,6 +103,30 @@ async def login_and_conversation(client: AsyncClient, persona: str, org: str) ->
 
 
 @pytest.mark.asyncio
+async def test_staff_analytics_rbac_and_tenant_safe_shape(
+    agent_client: tuple[AsyncClient, async_sessionmaker[AsyncSession]],
+) -> None:
+    client, _ = agent_client
+    await login_and_conversation(client, "amira-en", "novacart")
+    assert (await client.get("/api/v1/staff/analytics?range=24h")).status_code == 403
+    await client.post("/api/v1/auth/logout")
+    login = await client.post(
+        "/api/v1/auth/staff-login",
+        json={
+            "organization_slug": "novacart",
+            "email": "support@novacart.test",
+            "password": "synthetic-demo-password",
+        },
+    )
+    assert login.status_code == 200
+    response = await client.get("/api/v1/staff/analytics?range=24h")
+    assert response.status_code == 200
+    assert response.json()["conversation_volume"] >= 1
+    assert not ({"messages", "customers", "conversation_ids"} & response.json().keys())
+    assert (await client.get("/api/v1/staff/analytics?range=forever")).status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_conversation_audit_rbac_and_untrusted_metadata(
     agent_client: tuple[AsyncClient, async_sessionmaker[AsyncSession]],
 ) -> None:

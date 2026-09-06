@@ -3,8 +3,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from opentelemetry.propagate import extract
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.errors import register_error_handlers
@@ -14,11 +15,25 @@ from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.infrastructure.database import close_database_engine, create_database_engine
 from app.infrastructure.redis import close_redis_client, create_job_queue, create_redis_client
+from app.observability import (
+    HTTP_LATENCY,
+    HTTP_REQUESTS,
+    Timer,
+    configure_observability,
+    correlation_id,
+    metrics_payload,
+    new_request_id,
+    request_id,
+    safe_route,
+    trace_id,
+    tracer,
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
     configure_logging(resolved_settings.log_level)
+    configure_observability(resolved_settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -60,6 +75,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_error_handlers(app)
 
     @app.middleware("http")
+    async def telemetry(request: Request, call_next):  # type: ignore[no-untyped-def]
+        incoming = new_request_id(request.headers.get("x-request-id"))
+        request_token = request_id.set(incoming)
+        correlation_token = correlation_id.set(incoming)
+        route = safe_route(request.url.path)
+        timer = Timer.start()
+        status = 500
+        try:
+            parent = extract(dict(request.headers))
+            with tracer().start_as_current_span(
+                "http.request",
+                context=parent,
+                attributes={"http.method": request.method, "http.route": route},
+            ):
+                response = await call_next(request)
+                status = response.status_code
+                response.headers["X-Request-ID"] = incoming
+                response.headers["X-Correlation-ID"] = incoming
+                current_trace = trace_id()
+                if current_trace:
+                    response.headers["X-Trace-ID"] = current_trace
+                return response
+        finally:
+            HTTP_REQUESTS.labels(request.method, route, f"{status // 100}xx").inc()
+            HTTP_LATENCY.labels(request.method, route).observe(timer.seconds())
+            request_id.reset(request_token)
+            correlation_id.reset(correlation_token)
+
+    @app.middleware("http")
     async def browser_csrf(request: Request, call_next):  # type: ignore[no-untyped-def]
         origin = request.headers.get("origin")
         if (
@@ -89,6 +133,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(health_router)
     app.include_router(v1_router)
+
+    @app.get("/metrics", include_in_schema=False)
+    async def prometheus_metrics() -> Response:
+        return Response(metrics_payload(), media_type="text/plain; version=0.0.4")
 
     @app.get("/", tags=["metadata"], summary="Service metadata")
     async def root() -> dict[str, str]:

@@ -26,6 +26,7 @@ from app.providers.factory import create_commerce_provider, create_crm_provider
 from app.repositories.conversations import ConversationRepository
 from app.services.address_actions import AddressActionError, AddressActionService, AddressProposal
 from app.services.auth import AuthorizationError, ResourceNotFoundError
+from app.services.controls import CustomerControls
 from app.services.handoff import HandoffError, HandoffService, OpenAIHandoffSummaryModel
 from app.services.refunds import RefundError, RefundProposal, RefundService
 from app.services.sales_leads import (
@@ -132,6 +133,7 @@ async def submit_message(
     principal: CurrentPrincipal,
     session: DatabaseSession,
     settings: RequestSettings,
+    _controls: CustomerControls,
     idempotency_key: str = Header(min_length=8, max_length=128, alias="Idempotency-Key"),
 ) -> AgentRunResponse:
     if principal.kind != "customer":
@@ -325,6 +327,7 @@ async def resume_thread(
     principal: CurrentPrincipal,
     session: DatabaseSession,
     settings: RequestSettings,
+    _controls: CustomerControls,
     idempotency_key: str = Header(min_length=8, max_length=128, alias="Idempotency-Key"),
 ) -> AgentRunResponse:
     if principal.kind != "customer":

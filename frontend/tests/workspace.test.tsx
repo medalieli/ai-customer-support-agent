@@ -1,7 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { ConfirmationCard } from "@/components/confirmation-card";
 import { MessageList } from "@/components/message-list";
+import { AnalyticsDashboard } from "@/components/analytics-dashboard";
 
 it("renders customer, staff, provider updates, and validated citations safely", () => {
   render(<MessageList messages={[
@@ -22,4 +23,23 @@ it("requires an explicit confirmation decision and disables expired actions", ()
   expect(decide).toHaveBeenCalledWith("approve");
   rerender(<ConfirmationCard busy={false} onDecision={decide} confirmation={{ action_id: "a", confirmation_token: "x".repeat(32), expires_at: null }}/>);
   expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
+});
+
+it("renders loading, empty analytics, and time-range filtering", async () => {
+  const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+    range: "7d", generated_at: "2026-09-05T00:00:00Z", conversation_volume: 0,
+    containment_rate: 0, escalation_rate: 0, tool_success_rate: 0,
+    average_response_latency_ms: 0, p95_response_latency_ms: 0, citation_success_rate: 0,
+    confirmations: { approved: 0, denied: 0, expired: 0, conflict: 0 },
+    aggregates: { refunds: 0, leads: 0, tickets: 0 },
+    provider_health: { successes: 0, failures: 0 }, webhooks: { retries: 0, dead_letter: 0 },
+  }), { status: 200 }));
+  render(<AnalyticsDashboard />);
+  expect(screen.getByRole("status")).toHaveTextContent("Loading operational analytics");
+  expect(await screen.findByText("No conversations occurred in this time range.")).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Time range"), { target: { value: "24h" } });
+  await waitFor(() => expect(request).toHaveBeenLastCalledWith(
+    expect.stringContaining("range=24h"), expect.any(Object),
+  ));
+  request.mockRestore();
 });

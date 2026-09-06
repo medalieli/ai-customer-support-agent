@@ -23,6 +23,7 @@ from app.knowledge.embeddings import (
     indexing_fingerprint,
 )
 from app.knowledge.rerankers import Reranker, create_reranker
+from app.observability import RAG_LATENCY, Timer, bounded, span
 
 RRF_K = 60
 STOPWORDS = {
@@ -130,7 +131,7 @@ def local_rerank(query: str, text: str) -> float:
     return len(query_tokens & normalized_tokens(text)) / len(query_tokens)
 
 
-async def retrieve_passages(
+async def _retrieve_passages(
     session: AsyncSession,
     settings: Settings,
     organization_id: UUID,
@@ -273,6 +274,42 @@ async def retrieve_passages(
         )
     await session.commit()
     return results
+
+
+async def retrieve_passages(
+    session: AsyncSession,
+    settings: Settings,
+    organization_id: UUID,
+    query: str,
+    *,
+    language: str | None = None,
+    document_type: str | None = None,
+    top_k: int | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
+    reranker: Reranker | None = None,
+) -> list[Passage]:
+    """Retrieve with content-free tracing; query and passages are never exported."""
+    locale = bounded(language or "other", {"en", "fr"})
+    timer = Timer.start()
+    outcome = "success"
+    try:
+        with span("rag.retrieve", **{"rag.locale": locale}):
+            return await _retrieve_passages(
+                session,
+                settings,
+                organization_id,
+                query,
+                language=language,
+                document_type=document_type,
+                top_k=top_k,
+                embedding_provider=embedding_provider,
+                reranker=reranker,
+            )
+    except Exception:
+        outcome = "failure"
+        raise
+    finally:
+        RAG_LATENCY.labels(outcome, locale).observe(timer.seconds())
 
 
 async def validate_citation(

@@ -25,7 +25,7 @@ async function decide(page: Page, name: "Approve" | "Cancel") {
 }
 
 async function customerLogin(page: Page, name = "Amira Haddad") {
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "networkidle" });
   const value = name === "Nora Silva" ? "orbit-outlet|nora-en" : name === "Lucas Martin" ? "novacart|lucas-fr" : "novacart|amira-en";
   await page.getByLabel("Demo customer").selectOption(value);
   const hydrated = page.waitForResponse((response) => response.url().endsWith("/conversations") && response.request().method() === "GET");
@@ -307,8 +307,9 @@ test("keyboard, focus, accessibility, and viewport overflow", async ({ page }, t
   await page.getByLabel("Password").fill("synthetic-demo-password");
   await page.getByRole("button", { name: "Continue securely" }).click();
   await expect(page).toHaveURL(/\/staff$/);
-  await page.locator(".ticket-row").first().focus();
-  await page.locator(".ticket-row").first().press("Enter");
+  const firstTicket = page.getByRole("navigation", { name: "Ticket queue" }).locator(".ticket-row").first();
+  await firstTicket.focus();
+  await firstTicket.press("Enter");
   await expect(page.getByRole("heading", { name: "Audit timeline" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
