@@ -9,7 +9,7 @@ export default function Login() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [mode, setMode] = useState<"customer" | "staff">("customer");
   const [error, setError] = useState("");
-  useEffect(() => { api<Identity>("/auth/me").then((me) => location.assign(me.kind === "staff" ? "/staff" : "/chat")).catch(() => api<Persona[]>("/auth/demo-personas").then(setPersonas).catch(() => undefined)); }, []);
+  useEffect(() => { api<Identity>("/auth/me").then((me) => location.assign(me.kind === "staff" ? "/staff" : "/chat")).catch(() => api<Persona[]>("/auth/demo-personas").then(setPersonas).catch(() => setError("Demo customers could not be loaded. Refresh after the API is ready."))); }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -19,7 +19,7 @@ export default function Login() {
     try {
       const me = mode === "customer"
         ? await api<Identity>("/auth/demo-login", { method: "POST", body: JSON.stringify({ organization_slug: customerOrganization, persona_key: persona }) })
-        : await api<Identity>("/auth/staff-login", { method: "POST", body: JSON.stringify({ organization_slug: data.get("organization"), email: data.get("email"), password: data.get("password") }) });
+        : await api<Identity>("/auth/staff-login", { method: "POST", body: JSON.stringify({ organization_slug: String(data.get("organization")).trim().toLowerCase(), email: String(data.get("email")).trim().toLowerCase(), password: data.get("password") }) });
       location.assign(me.kind === "staff" ? "/staff" : "/chat");
     } catch (problem) { setError((problem as ApiProblem).message); }
   }
