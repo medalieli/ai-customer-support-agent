@@ -5,6 +5,7 @@ from inspect import isawaitable
 from typing import Any, Literal, cast
 from uuid import UUID
 
+import structlog
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
@@ -36,6 +37,8 @@ from app.services.refunds import (
     parse_refund_intent,
 )
 from app.services.sales_leads import SalesLeadError, SalesLeadService, genuine_sales_intent
+
+logger = structlog.get_logger(__name__)
 
 EventEmitter = Callable[[str, dict[str, object]], Awaitable[None]]
 
@@ -188,7 +191,8 @@ class AgentGraph:
                 self.context.request_message or _latest_user(state)
             )
             result = validate_triage(raw, self.settings.agent_min_confidence)
-        except Exception:
+        except Exception as exc:
+            await logger.aerror("agent_triage_failed", error_type=type(exc).__name__)
             await self.emit("action_failed", {"reason": "triage_failed"})
             return {
                 "intents": [],
