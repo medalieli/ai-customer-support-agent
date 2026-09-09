@@ -4,6 +4,7 @@ import re
 from typing import Any, cast
 from uuid import UUID
 
+import structlog
 from fastapi import APIRouter, Header, Query, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.runnables import RunnableConfig
@@ -36,6 +37,8 @@ from app.services.sales_leads import (
     SalesLeadService,
     genuine_sales_intent,
 )
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -335,7 +338,8 @@ async def submit_message(
             await conversations.add_message(
                 conversation, MessageRole.ASSISTANT, final.messages[-1].content, conversation.locale
             )
-    except Exception:
+    except Exception as exc:
+        await logger.aerror("agent_orchestration_failed", error_type=type(exc).__name__)
         run.status = "failed"
         thread.status = "failed"
         await repo.event(run, "escalation_required", {"reason": "orchestration_failure"})
@@ -573,7 +577,8 @@ async def resume_thread(
         thread.interrupt_reason = None
         thread.checkpoint_version += 1
         await repo.event(run, "response_completed", {"resumed": True})
-    except Exception:
+    except Exception as exc:
+        await logger.aerror("agent_resume_failed", error_type=type(exc).__name__)
         run.status = "failed"
         await repo.event(run, "escalation_required", {"reason": "resume_failed"})
     await session.commit()
