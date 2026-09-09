@@ -63,6 +63,7 @@ def _language(message: str, fallback: str) -> str:
 
 
 def _knowledge_query(message: str) -> str:
+    message = re.sub(r"\b(?:adress|addres)\b", "address", message, flags=re.IGNORECASE)
     parts = re.split(r"\s+(?:and|et)\s+|[,;]", message, flags=re.IGNORECASE)
     knowledge_parts = [
         part.strip()
@@ -188,13 +189,13 @@ class AgentGraph:
             )
             result = validate_triage(raw, self.settings.agent_min_confidence)
         except Exception:
-            await self.emit("escalation_required", {"reason": "triage_failed"})
+            await self.emit("action_failed", {"reason": "triage_failed"})
             return {
                 "intents": [],
                 "confidence": 0.0,
-                "risk_level": RiskLevel.ESCALATION,
+                "risk_level": RiskLevel.READ_ONLY,
                 "step_count": state.step_count + 1,
-                "status": "escalation_required",
+                "status": "failed",
                 "escalation_reason": "triage_failed",
             }
         confidence = min(item.confidence for item in result.intents)
@@ -215,6 +216,8 @@ class AgentGraph:
         }
 
     async def _plan(self, state: AgentState) -> dict[str, object]:
+        if state.status == "failed":
+            return {"status": "failed", "selected_tools": []}
         if state.status == "escalation_required" or self._bounded(state):
             return {
                 "status": "escalation_required",
@@ -447,11 +450,11 @@ class AgentGraph:
                     "pending_action_hash": sales_proposal.action_hash,
                     "step_count": state.step_count + 1,
                 }
-        if labels & {IntentLabel.HUMAN_HELP, IntentLabel.UNSUPPORTED}:
+        if IntentLabel.HUMAN_HELP in labels:
             return {
                 "selected_tools": selected,
                 "status": "escalation_required",
-                "escalation_reason": "human_or_unsupported",
+                "escalation_reason": "explicit_human_request",
                 "step_count": state.step_count + 1,
             }
         return {"selected_tools": selected, "step_count": state.step_count + 1}
@@ -541,9 +544,36 @@ class AgentGraph:
         if state.status == "failed":
             reason = state.escalation_reason or "action_failed"
             await self.emit("action_failed", {"status": "action_failed", "reason": reason})
+            if reason == "triage_failed":
+                answer = (
+                    "Je rencontre un problème de connexion. Veuillez réessayer dans un instant."
+                    if self.context.locale == "fr"
+                    else "I’m having trouble connecting right now. Please try again in a moment."
+                )
+                await self.emit("response_completed", {"message": answer, "citations": []})
+                return {
+                    "status": "failed",
+                    "step_count": state.step_count + 1,
+                    "messages": [*state.messages, VisibleMessage(role="assistant", content=answer)],
+                }
             return {"status": "failed", "step_count": state.step_count + 1}
         parts: list[str] = []
         locale = cast(Literal["en", "fr"], _language(_latest_user(state), self.context.locale))
+        labels = {item.label for item in state.intents}
+        if IntentLabel.SMALL_TALK in labels:
+            parts.append(
+                "Bonjour ! Comment puis-je vous aider avec NovaCart aujourd’hui ?"
+                if locale == "fr"
+                else "Hi! How can I help with your NovaCart order or support question today?"
+            )
+        if IntentLabel.UNSUPPORTED in labels:
+            parts.append(
+                "Je peux vous aider avec les commandes, livraisons, retours, remboursements, "
+                "politiques NovaCart, modifications d’adresse et demandes commerciales."
+                if locale == "fr"
+                else "I can help with NovaCart orders, deliveries, returns, refunds, policies, "
+                "address changes, and sales questions."
+            )
         validated_refs = []
         knowledge = next(
             (
@@ -599,10 +629,7 @@ class AgentGraph:
                 )
                 if any(term in grounded.answer.casefold() for term in forbidden):
                     raise ValueError("action_claim")
-                heading = (
-                    "Policy information" if locale == "en" else "Informations sur la politique"
-                )
-                parts.append(f"## {heading}\n\n{grounded.answer}")
+                parts.append(grounded.answer)
             except Exception:
                 return await self._safe_failure(state, locale, "grounding_failed")
         for result in state.sanitized_results:
@@ -737,7 +764,7 @@ class AgentGraph:
         answer = "\n\n".join(parts) or (
             "Je ne peux pas vérifier suffisamment d’informations pour répondre."
             if locale == "fr"
-            else "I could not verify enough information to answer safely."
+            else "I don’t have enough information to answer that yet."
         )
         await self.emit(
             "response_completed",

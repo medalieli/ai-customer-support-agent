@@ -6,8 +6,8 @@ import Home from "@/app/page";
 it("renders the NovaCart support login", () => {
   render(<Home />);
   expect(
-    screen.getByRole("heading", { name: "Answers that understand your order." }),
+    screen.getByRole("heading", { name: "How can we help?" }),
   ).toBeInTheDocument();
   expect(screen.getByRole("tab", { name: "Customer" })).toBeInTheDocument();
-  expect(screen.getByText(/HttpOnly cookie/)).toBeInTheDocument();
+  expect(screen.getByText(/sample customer and order information/)).toBeInTheDocument();
 });

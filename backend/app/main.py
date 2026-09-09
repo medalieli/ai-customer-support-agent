@@ -37,6 +37,15 @@ def runtime_may_prepare_checkpoint_schema(settings: Settings) -> bool:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
+    if (
+        resolved_settings.app_env != "test"
+        and resolved_settings.agent_provider == "openai"
+        and not (
+            resolved_settings.openai_api_key
+            and resolved_settings.openai_api_key.get_secret_value().strip()
+        )
+    ):
+        raise RuntimeError("OpenAI API key is required for application runtime")
     configure_logging(resolved_settings.log_level)
     configure_observability(resolved_settings)
 
@@ -145,7 +154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=[str(resolved_settings.frontend_url).rstrip("/")],
         allow_credentials=True,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "DELETE"],
         allow_headers=[
             "Accept",
             "Content-Type",
@@ -172,6 +181,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     return app
-
-
-app = create_app()

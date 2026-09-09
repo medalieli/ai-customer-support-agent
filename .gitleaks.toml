@@ -1,11 +1,15 @@
 title = "NovaCart secret scanning exceptions"
 
-# Reviewed historical false positives: two explicit synthetic fixtures and Mermaid
-# relationship syntax. The exception matches only these literal non-secret values.
+[extend]
+useDefault = true
+
+# Reviewed historical false positives: two explicit synthetic fixtures, Mermaid
+# relationship syntax, and a prose field description. These are literal non-secret values.
 [allowlist]
 description = "Reviewed synthetic fixtures and documentation tokens"
 regexes = [
   '''idempotency-001''',
   '''synthetic-internal-key-12345''',
   '''PROVIDER_CONNECTION''',
+  '''consumption/result''',
 ]

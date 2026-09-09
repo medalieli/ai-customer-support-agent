@@ -33,6 +33,7 @@ class ConversationRepository:
             .where(
                 Conversation.organization_id == organization_id,
                 Conversation.customer_id == customer_id,
+                Conversation.customer_deleted_at.is_(None),
             )
             .order_by(Conversation.created_at.desc(), Conversation.id)
             .limit(limit)
@@ -47,6 +48,7 @@ class ConversationRepository:
             select(Conversation).where(
                 Conversation.organization_id == organization_id,
                 Conversation.customer_id == customer_id,
+                Conversation.customer_deleted_at.is_(None),
                 Conversation.id == conversation_id,
             )
         )

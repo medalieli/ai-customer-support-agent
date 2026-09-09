@@ -67,6 +67,7 @@ class TicketStatus(str, enum.Enum):
     OPEN = "open"
     IN_PROGRESS = "in_progress"
     RESOLVED = "resolved"
+    CLOSED = "closed"
 
 
 class WebhookStatus(str, enum.Enum):
@@ -202,6 +203,7 @@ class Conversation(Base, TimestampMixin):
     assigned_staff_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     locale: Mapped[str] = mapped_column(String(5), default="en")
     ownership_state: Mapped[str] = mapped_column(String(30), default="ai_active")
+    customer_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Message(Base):
@@ -440,6 +442,7 @@ class SupportTicket(Base, TimestampMixin):
     provider_ref: Mapped[str | None] = mapped_column(String(160))
     version: Mapped[int] = mapped_column(Integer, default=1)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AuditEvent(Base):

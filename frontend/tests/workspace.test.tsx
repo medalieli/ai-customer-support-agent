@@ -12,7 +12,8 @@ it("renders customer, staff, provider updates, and validated citations safely", 
     { id: "4", sequence_number: 4, role: "system_event", content: JSON.stringify({ type: "provider_sync", state: { status: "open", fulfillment_status: "fulfilled", tracking_status: "in_transit" } }), locale: "en", created_at: "2026-01-01T10:03:00Z" },
   ]}/>);
   expect(screen.getByText("It is in transit.")).toBeInTheDocument();
-  expect(screen.getByText("Validated")).toBeInTheDocument();
+  fireEvent.click(screen.getByText("View source"));
+  expect(screen.getByText("Validated")).toBeVisible();
   expect(screen.getByText("in_transit")).toBeInTheDocument();
 });
 

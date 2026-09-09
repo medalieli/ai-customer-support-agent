@@ -201,9 +201,7 @@ async def submit_message(
         run.status = conversation.ownership_state
         thread.status = conversation.ownership_state
         await repo.event(run, "handoff_requested", {"status": conversation.ownership_state})
-        await repo.event(
-            run, "response_completed", {"message": acknowledgement, "citations": []}
-        )
+        await repo.event(run, "response_completed", {"message": acknowledgement, "citations": []})
         await session.commit()
         return AgentRunResponse(
             run_id=run.id,
@@ -312,9 +310,8 @@ async def submit_message(
                             "confirmer si elle appartient à un autre client. Un dossier humain "
                             "a été ouvert et votre message est enregistré."
                             if order_not_found
-                            else "Je n’ai pas pu vérifier cette demande en toute sécurité. Un "
-                            "dossier d’assistance humaine a été ouvert et votre message est "
-                            "enregistré."
+                            else "Un dossier d’assistance humaine a été ouvert "
+                            "et votre message est enregistré."
                         )
                     else:
                         acknowledgement = (
@@ -323,12 +320,9 @@ async def submit_message(
                             "someone else. A human support ticket has been opened and your message "
                             "is saved."
                             if order_not_found
-                            else "I could not verify this request safely. A human support ticket "
-                            "has been opened and your message is saved."
+                            else "A human support ticket has been opened and your message is saved."
                         )
-                    final.messages.append(
-                        VisibleMessage(role="assistant", content=acknowledgement)
-                    )
+                    final.messages.append(VisibleMessage(role="assistant", content=acknowledgement))
                     await repo.event(
                         run,
                         "response_completed",

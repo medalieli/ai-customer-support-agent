@@ -30,6 +30,8 @@ The UI never contacts providers directly. FastAPI establishes identity and tenan
 ```mermaid
 flowchart TD
   Input[Authenticated message] --> Route{Intent + confidence}
+  Route -->|Greeting| Greeting[Friendly reply without escalation]
+  Route -->|Out of scope| Scope[Explain support scope without a ticket]
   Route -->|FAQ| RAG[Retrieve tenant knowledge]
   Route -->|Order read| Read[Commerce read tool]
   Route -->|Address / refund / lead| Policy[Validate arguments + policy]
@@ -54,12 +56,16 @@ This describes controls, not hidden chain-of-thought.
 
 Policies live in versioned, tenant-scoped RAG because prose needs citation and controlled updates. Orders, refunds, and contacts come from provider APIs because they are mutable operational facts. Reads execute directly; consequential writes persist a structured pending action and suspend the graph. Approval resumes with an expiring signed token and idempotency key, so retries reuse an outcome rather than duplicate a side effect.
 
-Low confidence, missing data, provider failure, or an explicit request creates a tenant-scoped ticket. Staff can claim, publicly reply, privately note, resolve, or return it to AI; audit history preserves transitions. Organization scope reaches sessions, RLS queries, provider bindings, knowledge, tools, tickets, and analytics. The runtime database role is tested as non-owner/non-superuser, while production-like Compose adds TLS, headers, network isolation, and mounted-secret support.
+Appropriate uncertain support cases, provider failures during supported workflows, or an explicit human request create a tenant-scoped ticket. Greetings receive a friendly response; unsupported general questions receive a scope explanation without automatically opening a ticket. A triage connection failure asks the customer to retry. Staff can claim, publicly reply, privately note, resolve, close, or return it to AI; audit history preserves transitions. Organization scope reaches sessions, RLS queries, provider bindings, knowledge, tools, tickets, and analytics. The runtime database role is tested as non-owner/non-superuser, while production-like Compose adds TLS, headers, network isolation, and mounted-secret support.
 
 ## Evidence, tradeoffs, and limitations
 
 Deterministic evaluations cover grounding, routing, confirmations, failures, multilingual behavior, and adversarial inputs. Metrics cover HTTP, agent, tools/providers, queues, budgets, and SSE. The M15 local baseline completed 102 mixed workflows at concurrency 1/4/8 with zero workflow errors; at concurrency 8 it measured 0.754 workflows/s, HTTP P50/P95 2062/2872 ms, and agent-run P50/P95 2501/2896 ms. These are documented local Docker results, not a production SLA.
 
-Deterministic mode is repeatable but does not demonstrate generative quality. OpenAI mode is optional and variable. Mock REST services exercise persistence, auth, failures, and contracts, but not every vendor edge case. Demo authentication is synthetic. No cloud deployment, live Shopify/HubSpot verification, or production traffic is claimed.
+OpenAI is required for customer-facing AI responses and its output varies. Deterministic agent models are restricted to automated tests and evaluations. Portfolio retrieval uses fake embeddings and deterministic reranking; production-like retrieval requires semantic embeddings and cross-encoder reranking. Mock REST services exercise persistence, auth, failures, and contracts, but not every vendor edge case. Demo authentication is synthetic. No cloud deployment, live Shopify/HubSpot verification, or production traffic is claimed.
 
 To replace mocks, independently select `shopify` and/or `hubspot`, supply secrets through the documented mechanism, and retain the same application-facing ports. A client launch must still validate scopes, webhooks, rate limits, tenant mapping, retention, and rollback in its own sandbox accounts.
+
+## Current customer and staff experience
+
+The dark interface uses mint accents, searchable conversations, suggested questions, immediate message feedback, and an AI loading indicator. Responsive layouts support mobile use, with reduced-motion CSS for users who request it. Staff tickets are grouped and searchable by customer. The first public reply or private note in the UI claims an open, unassigned ticket before submitting content; the API still enforces ownership and optimistic versions. Private notes stay out of the customer transcript. Resolve marks a case resolved; close uses a separate closed status. Return to AI is available to the assigned staff member from in-progress or resolved cases, reopening the conversation while resolving the ticket. Closed cases do not offer that transition.

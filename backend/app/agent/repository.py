@@ -129,6 +129,7 @@ class AgentRepository:
                             "refund_request",
                             "sales_lead",
                             "human_help",
+                            "small_talk",
                             "unsupported_uncertain",
                         },
                     ),

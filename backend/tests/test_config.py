@@ -70,6 +70,14 @@ def test_deterministic_agent_is_explicitly_test_only() -> None:
         Settings(app_env="development", agent_provider="deterministic")
 
 
+def test_openai_agent_is_the_runtime_default() -> None:
+    settings = Settings(
+        app_env="development",
+        openai_api_key=SecretStr("synthetic-openai-key"),
+    )
+    assert settings.agent_provider == "openai"
+
+
 def production_settings(**overrides: object) -> Settings:
     values: dict[str, object] = {
         "app_env": "production",

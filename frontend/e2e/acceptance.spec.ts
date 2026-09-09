@@ -57,15 +57,30 @@ async function send(page: Page, message: string) {
   await expect(page.getByRole("status")).toContainText("Connected securely", { timeout: 30_000 });
 }
 
+test("greetings and general questions stay in AI mode", async ({ page }) => {
+  await customerLogin(page);
+  const conversation = await newConversation(page);
+  await send(page, "hi");
+  await expect(page.locator(".message.assistant").last()).toContainText(/Hi|Hello/i);
+  await send(page, "What is the capital of Japan?");
+  await expect(page.locator(".message.assistant").last()).toContainText(/orders|policies/i);
+  const state = await page.request.get(`${apiBase}/api/v1/conversations/${conversation}`);
+  expect((await state.json()).ownership_state).toBe("ai_active");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
+});
+
 test("English and French FAQ answers have validated citations", async ({ page }) => {
   await customerLogin(page);
   await newConversation(page);
   await send(page, "What is the NovaCart return policy?");
+  await page.locator(".citations summary").last().click();
   await expect(page.locator(".citations .valid").last()).toContainText(/valid/i);
   await signOut(page);
   await customerLogin(page, "Lucas Martin");
   await newConversation(page);
   await send(page, "Puis-je retourner un article admissible dans les 30 jours civils suivant la livraison ?");
+  await page.locator(".citations summary").last().click();
   await expect(page.locator(".citations .valid").last()).toContainText(/valid/i);
 });
 
@@ -169,6 +184,7 @@ test("customer FAQ can be completed using only the keyboard", async ({ page }) =
   await page.keyboard.type("What is the warranty policy?");
   await tabTo(".composer button");
   await page.keyboard.press("Enter");
+  await page.locator(".citations summary").last().click();
   await expect(page.locator(".citations .valid").last()).toBeVisible();
 });
 
@@ -239,13 +255,17 @@ test("open staff and customer workspaces receive new handoffs and replies", asyn
     await expect(staff).toHaveURL(/\/staff$/);
 
     await customerLogin(customer);
-    await newConversation(customer);
+    const conversationId = await newConversation(customer);
     await send(customer, "I need a human representative");
     await expect(customer.locator(".message.assistant").last()).toContainText(
       /human support ticket/i,
     );
 
-    const ticketRow = staff.getByRole("button", { name: /explicit human request/i }).last();
+    const tickets = await (await staff.request.get(`${apiBase}/api/v1/staff/tickets`)).json();
+    const ticket = tickets.find((item: { conversation_id: string }) => item.conversation_id === conversationId);
+    expect(ticket).toBeTruthy();
+    const ticketRow = staff.getByRole("navigation", { name: "Tickets grouped by customer" })
+      .getByRole("button").filter({ hasText: ticket.id.slice(0, 8) });
     await expect(ticketRow).toBeVisible({ timeout: 10_000 });
     await ticketRow.click();
     await customer.getByLabel("Message NovaCart support").fill("A new customer detail");
@@ -290,10 +310,13 @@ test("human handoff supports staff lifecycle, audit, and private-note isolation"
   await page.getByLabel("Password").fill("synthetic-demo-password");
   await page.getByRole("button", { name: "Continue securely" }).click();
   await expect(page).toHaveURL(/\/staff$/);
-  const ticketRow = page.getByRole("button", { name: /explicit human request/i }).last();
+  const tickets = await (await page.request.get(`${apiBase}/api/v1/staff/tickets`)).json();
+  const ticket = tickets.find((item: { conversation_id: string }) => item.conversation_id === conversationId);
+  expect(ticket).toBeTruthy();
+  const ticketRow = page.getByRole("navigation", { name: "Tickets grouped by customer" })
+    .getByRole("button").filter({ hasText: ticket.id.slice(0, 8) });
   await ticketRow.focus();
   await ticketRow.press("Enter");
-  await page.getByRole("button", { name: "Claim" }).click();
   await page.getByLabel("Public reply").fill(`Public E2E reply ${runId}`);
   await page.getByRole("button", { name: "Send to customer" }).click();
   await page.getByLabel("Private internal note").fill(`PRIVATE-E2E-NOTE ${runId}`);
@@ -311,6 +334,7 @@ test("human handoff supports staff lifecycle, audit, and private-note isolation"
   expect(history.ok()).toBe(true);
   expect(await history.text()).not.toContain("PRIVATE-E2E-NOTE");
   await send(page, "What is the warranty policy?");
+  await page.locator(".citations summary").last().click();
   await expect(page.locator(".citations .valid").last()).toBeVisible();
   await page.context().clearCookies();
   await customerLogin(page, "Nora Silva");
@@ -346,10 +370,14 @@ test("keyboard, focus, accessibility, and viewport overflow", async ({ page }, t
   await page.getByLabel("Password").fill("synthetic-demo-password");
   await page.getByRole("button", { name: "Continue securely" }).click();
   await expect(page).toHaveURL(/\/staff$/);
-  const firstTicket = page.getByRole("navigation", { name: "Ticket queue" }).locator(".ticket-row").first();
+  const queue = page.getByRole("navigation", { name: "Tickets grouped by customer" });
+  await expect(queue.getByText("Amira Haddad", { exact: true })).toBeVisible();
+  const firstTicket = queue.locator(".ticket-row").first();
   await firstTicket.focus();
   await firstTicket.press("Enter");
   await expect(page.getByRole("heading", { name: "Audit timeline" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Customer and ticket details" })).toBeVisible();
+  await expect(page.locator(".summary-card pre")).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("staff.png"), fullPage: true });

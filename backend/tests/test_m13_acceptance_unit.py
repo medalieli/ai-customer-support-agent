@@ -3,6 +3,7 @@ from uuid import UUID
 
 import pytest
 from fastapi import Response
+from pydantic import SecretStr
 
 from app.agent.answers import OpenAIAnswerModel
 from app.agent.deterministic import (
@@ -11,6 +12,7 @@ from app.agent.deterministic import (
     DeterministicLeadExtractor,
     DeterministicTriageModel,
 )
+from app.agent.state import IntentLabel
 from app.agent.triage import OpenAITriageModel
 from app.api.v1.auth import current_identity, set_session_cookie
 from app.api.v1.tickets import _audit_category
@@ -101,6 +103,23 @@ async def test_explicit_test_models(message: str) -> None:
     ).preferred_contact_method == "email"
 
 
+@pytest.mark.asyncio
+async def test_deterministic_demo_understands_natural_handoff_and_address_question() -> None:
+    settings = Settings(app_env="test")
+    triage = DeterministicTriageModel(settings)
+    handoff = await triage.classify("I need to talk to someone")
+    address = await triage.classify("Can I change the adress?")
+    assert handoff.intents[0].label == IntentLabel.HUMAN_HELP
+    assert address.intents[0].label == IntentLabel.KNOWLEDGE
+
+    answer = await DeterministicAnswerModel(settings).answer(
+        "Can I change the address?",
+        "en",
+        [{"receipt_id": "shipping", "text": "An address can change before fulfillment."}],
+    )
+    assert answer.answer == "Here’s the relevant policy: An address can change before fulfillment."
+
+
 @pytest.mark.parametrize(
     "model",
     [
@@ -112,7 +131,7 @@ async def test_explicit_test_models(message: str) -> None:
 )
 def test_model_constructors_reject_demo(model: type) -> None:
     with pytest.raises(RuntimeError, match="test-only"):
-        model(Settings(app_env="development"))
+        model(Settings(app_env="development", openai_api_key="synthetic-test-key"))
 
 
 @pytest.mark.asyncio
@@ -135,6 +154,7 @@ async def test_demo_reset_guards(
         update={
             "app_env": environment,
             "demo_auth_enabled": enabled,
+            "demo_staff_password": SecretStr("synthetic-demo-password"),
         }
     )
     monkeypatch.setattr(demo_reset, "get_settings", lambda: settings)
@@ -142,7 +162,13 @@ async def test_demo_reset_guards(
         "NOVACART_CONFIRM_DEMO_RESET", "RESET_SYNTHETIC_NOVACART" if confirmation else ""
     )
     if environment == "development" and enabled and confirmation:
-        await demo_reset.main()
+        monkeypatch.setattr(
+            demo_reset,
+            "create_database_engine",
+            lambda _settings: (_ for _ in ()).throw(RuntimeError("reset_boundary_reached")),
+        )
+        with pytest.raises(RuntimeError, match="reset_boundary_reached"):
+            await demo_reset.main()
     else:
         with pytest.raises(RuntimeError):
             await demo_reset.main()

@@ -13,25 +13,32 @@ async function login(page: Page, persona = "novacart|amira-en") {
 async function fresh(page: Page) {
   await page.getByRole("button", { name: "New conversation", exact: true }).click();
   await expect(page.getByLabel("Message NovaCart support")).toBeEnabled();
+  await expect(page.locator(".message")).toHaveCount(0);
 }
 async function send(page: Page, text: string) {
+  const completedResponses = page.locator(".message.assistant, .confirmation");
+  const before = await completedResponses.count();
   const response = page.waitForResponse((item) => item.request().method() === "POST" && item.url().includes("/agent/threads/") && item.url().endsWith("/messages"));
   await page.getByLabel("Message NovaCart support").fill(text);
   await page.getByRole("button", { name: "Send" }).click();
   expect((await response).ok()).toBe(true);
-  await expect(page.getByRole("status")).toContainText("Connected securely", { timeout: 30_000 });
+  await expect(page.getByRole("status")).toContainText("Connected securely", { timeout: 90_000 });
+  await expect(completedResponses).toHaveCount(before + 1, { timeout: 90_000 });
 }
 async function shot(page: Page, name: string) {
+  const visibleText = await page.locator("body").innerText();
+  expect(visibleText).not.toMatch(/sk-(?:proj-)?[A-Za-z0-9_-]{24,}|gh[pousr]_[A-Za-z0-9]{20,}|C:\\Users\\|BEGIN .*PRIVATE KEY|confirmation_token|session_token/);
   await page.screenshot({ path: path.join(gallery, name), type: "jpeg", quality: 84, animations: "disabled" });
 }
 
 test("capture the fictional NovaCart portfolio journey @portfolio", async ({ page }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(720_000);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await login(page);
 
   await fresh(page);
   await send(page, "What is the NovaCart return policy?");
+  await page.locator(".citations summary").last().click();
   await expect(page.locator(".citations .valid").last()).toBeVisible();
   await shot(page, "01-grounded-faq.jpg");
 
@@ -53,7 +60,7 @@ test("capture the fictional NovaCart portfolio journey @portfolio", async ({ pag
   await page.getByRole("button", { name: "Cancel" }).click();
 
   await fresh(page);
-  await send(page, "I want an enterprise product demo and consent to being contacted by sales by email");
+  await send(page, "Book an enterprise product demo for Acme; interest: support API; need: scale customer care; contact: email. I consent to sales contact.");
   await expect(page.getByRole("heading", { name: "Review before continuing" })).toBeVisible();
   await shot(page, "05-crm-consent.jpg");
   await page.getByRole("button", { name: "Cancel" }).click();
@@ -84,6 +91,7 @@ test("capture the fictional NovaCart portfolio journey @portfolio", async ({ pag
   await login(page, "novacart|lucas-fr");
   await fresh(page);
   await send(page, "What is the warranty policy?");
+  await page.locator(".citations summary").last().click();
   await expect(page.locator(".citations .valid").last()).toBeVisible();
   await shot(page, "08-mobile-customer-support.jpg");
 });

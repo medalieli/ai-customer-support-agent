@@ -24,7 +24,8 @@ TOOLS = {
     IntentLabel.REFUND: "evaluate_refund",
     IntentLabel.SALES_LEAD: "preview_sales_lead",
     IntentLabel.HUMAN_HELP: "create_support_ticket",
-    IntentLabel.UNSUPPORTED: "create_support_ticket",
+    IntentLabel.SMALL_TALK: "respond_conversationally",
+    IntentLabel.UNSUPPORTED: "respond_unsupported",
 }
 
 
@@ -51,14 +52,19 @@ async def evaluate(provider: str) -> dict[str, object]:
     correct_intent = correct_tool = task_success = citations = abstentions = escalations = 0
     unsafe_writes = duplicates = 0
     latencies: list[float] = []
+    failures: list[dict[str, object]] = []
     for case in cases:
         started = perf_counter()
         result = await model.classify(case["message"])
         latencies.append((perf_counter() - started) * 1000)
         predicted = result.intents[0].label
-        selected_tool = TOOLS[predicted]
-        intent_match = predicted.value == case["intent"]
-        tool_match = selected_tool == case["tool"]
+        predicted_labels = {item.label for item in result.intents}
+        selected_tools = {TOOLS[label] for label in predicted_labels}
+        expected_intent = IntentLabel(case["intent"])
+        intent_match = expected_intent in predicted_labels
+        tool_match = case["tool"] in selected_tools
+        escalated = IntentLabel.HUMAN_HELP in predicted_labels
+        escalation_match = escalated == case["escalate"]
         correct_intent += intent_match
         correct_tool += tool_match
         task_success += intent_match and tool_match
@@ -68,10 +74,20 @@ async def evaluate(provider: str) -> dict[str, object]:
         abstentions += (predicted == IntentLabel.UNSUPPORTED) == (
             case["intent"] == IntentLabel.UNSUPPORTED.value
         )
-        unsafe_writes += selected_tool.startswith("execute_")
-        escalations += (predicted in {IntentLabel.HUMAN_HELP, IntentLabel.UNSUPPORTED}) == case[
-            "escalate"
-        ]
+        unsafe_writes += any(tool.startswith("execute_") for tool in selected_tools)
+        escalations += escalation_match
+        if not (intent_match and tool_match and escalation_match):
+            failures.append(
+                {
+                    "id": case["id"],
+                    "message": case["message"],
+                    "expected_intent": case["intent"],
+                    "predicted_intents": [item.label.value for item in result.intents],
+                    "expected_tool": case["tool"],
+                    "selected_tools": sorted(selected_tools),
+                    "expected_escalation": case["escalate"],
+                }
+            )
     count = len(cases)
     ordered = sorted(latencies)
     report: dict[str, object] = {
@@ -88,6 +104,7 @@ async def evaluate(provider: str) -> dict[str, object]:
         "escalation_accuracy": escalations / count,
         "duplicate_side_effect_rate": duplicates / count,
         "side_effect_attempts": 0,
+        "failures": failures,
         "mean_latency_ms": sum(latencies) / count,
         "p95_latency_ms": ordered[max(0, int(count * 0.95 + 0.999) - 1)],
     }
@@ -96,7 +113,7 @@ async def evaluate(provider: str) -> dict[str, object]:
 
 async def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--provider", choices=("deterministic", "openai"), default="deterministic")
+    parser.add_argument("--provider", choices=("deterministic", "openai"), default="openai")
     parser.add_argument("--write-baseline", action="store_true")
     args = parser.parse_args()
     report = await evaluate(args.provider)
@@ -107,7 +124,7 @@ async def main() -> None:
     print(json.dumps(report, sort_keys=True))
     intent_score = cast(float, report["intent_micro_f1"])
     unsafe_rate = cast(float, report["unsafe_write_rate"])
-    if args.provider == "deterministic" and (intent_score < 0.9 or unsafe_rate > 0):
+    if intent_score < 0.95 or unsafe_rate > 0:
         raise SystemExit(1)
 
 

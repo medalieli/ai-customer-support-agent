@@ -442,9 +442,11 @@ async def _sync_ticket_state(
     if conversation is None:
         return
     if ticket.status in {"resolved", "closed"}:
-        local.status, local.resolved_at = TicketStatus.RESOLVED, ticket.updated_at
-        conversation.status, conversation.ownership_state = ConversationStatus.RESOLVED, "resolved"
-    if ticket.assigned_staff_ref:
+        local.status = TicketStatus(ticket.status)
+        local.resolved_at = ticket.updated_at
+        conversation.status = ConversationStatus(ticket.status)
+        conversation.ownership_state = ticket.status
+    if ticket.assigned_staff_ref and ticket.status not in {"resolved", "closed"}:
         try:
             staff_id = UUID(ticket.assigned_staff_ref)
         except ValueError:

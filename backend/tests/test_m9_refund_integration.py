@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
@@ -527,7 +528,9 @@ async def test_encrypted_payload_tampering_fails_without_write(
     async with factory() as session:
         action = await session.get(PendingAction, proposed.action_id)
         assert action
-        action.encrypted_payload = action.encrypted_payload[:-1] + b"x"
+        ciphertext = bytearray(base64.urlsafe_b64decode(action.encrypted_payload))
+        ciphertext[-1] ^= 1
+        action.encrypted_payload = base64.urlsafe_b64encode(ciphertext)
         await session.commit()
     async with factory() as session:
         service = RefundService(session, settings, commerce)

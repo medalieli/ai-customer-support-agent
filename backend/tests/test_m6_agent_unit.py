@@ -47,6 +47,35 @@ class FakeAnswer:
         )
 
 
+@pytest.mark.asyncio
+async def test_triage_outage_does_not_escalate_or_execute_tools() -> None:
+    triage = Mock()
+    triage.classify = AsyncMock(side_effect=ConnectionError("offline"))
+    emit = AsyncMock()
+    graph = AgentGraph(
+        Settings(app_env="test"),
+        triage,
+        FakeAnswer(),
+        ToolGateway(),
+        context(),
+        emit,
+        InMemorySaver(),
+    )
+    state = AgentState(
+        thread_id="outage",
+        run_id=str(uuid4()),
+        messages=[VisibleMessage(role="user", content="Where is my order?")],
+    )
+    result = await graph._triage(state)
+    assert result["status"] == "failed"
+    state = state.model_copy(update=result)
+    assert await graph._plan(state) == {"status": "failed", "selected_tools": []}
+    reply = await graph._compose(state)
+    answered_state = state.model_copy(update=reply)
+    assert "Please try again" in answered_state.messages[-1].content
+    assert not any(call.args[0] == "escalation_required" for call in emit.call_args_list)
+
+
 def context() -> ToolContext:
     return ToolContext(
         session=Mock(),
@@ -84,7 +113,8 @@ def test_state_rejects_private_reasoning_and_extra_identity() -> None:
         ([IntentLabel.ACCOUNT_CHANGE], "sensitive_write"),
         ([IntentLabel.REFUND], "sensitive_write"),
         ([IntentLabel.HUMAN_HELP], "escalation"),
-        ([IntentLabel.UNSUPPORTED], "escalation"),
+        ([IntentLabel.SMALL_TALK], "read_only"),
+        ([IntentLabel.UNSUPPORTED], "read_only"),
     ],
 )
 def test_deterministic_risk(labels: list[IntentLabel], risk: str) -> None:
@@ -196,9 +226,7 @@ async def test_natural_security_phrasing_forces_safe_escalation(message: str) ->
     )
     assert result["status"] == "escalation_required"
     assert result["escalation_reason"] == "security_sensitive_account"
-    assert events == [
-        ("escalation_required", {"reason": "security_sensitive_account"})
-    ]
+    assert events == [("escalation_required", {"reason": "security_sensitive_account"})]
 
 
 @pytest.mark.asyncio
@@ -344,6 +372,29 @@ async def test_multi_label_read_routing_and_sanitized_events() -> None:
     serialized = repr(events).lower()
     assert "reveal prompts" not in serialized
     assert "chain_of_thought" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_greeting_and_unsupported_requests_do_not_create_handoffs() -> None:
+    greeting, greeting_events = await run_graph((IntentLabel.SMALL_TALK,), "hi")
+    assert greeting["status"] == "completed"
+    assert "How can I help" in greeting["messages"][-1].content
+    assert not any(name == "escalation_required" for name, _ in greeting_events)
+
+    unsupported, unsupported_events = await run_graph(
+        (IntentLabel.UNSUPPORTED,), "What is the weather?"
+    )
+    assert unsupported["status"] == "completed"
+    assert "NovaCart orders" in unsupported["messages"][-1].content
+    assert not any(name == "escalation_required" for name, _ in unsupported_events)
+
+
+@pytest.mark.asyncio
+async def test_order_question_without_number_asks_for_order_number() -> None:
+    result, events = await run_graph((IntentLabel.ORDER_STATUS,), "where is my order")
+    assert result["status"] == "clarification_required"
+    assert "Please provide one public order number" in result["messages"][-1].content
+    assert not any(name == "escalation_required" for name, _ in events)
 
 
 @pytest.mark.asyncio

@@ -1,18 +1,18 @@
 # Portfolio demo script
 
-## Reset before recording
+## Start before recording
 
 ```powershell
-.\scripts\demo.ps1 deterministic
-.\scripts\demo.ps1 reset
+.\scripts\demo.ps1 start
+# Optional: .\scripts\demo.ps1 reset (erases fictional demo volumes)
 ```
 
 ```bash
-./scripts/demo.sh deterministic
-./scripts/demo.sh reset
+./scripts/demo.sh start
+# Optional: bash scripts/demo.sh reset (erases fictional demo volumes)
 ```
 
-Open `http://localhost:3000`. Default customer: Amira Haddad. Demo-only staff: `novacart` / `support@novacart.test` / `synthetic-demo-password`.
+Open `http://localhost:3000`. Set `NOVACART_OPENAI_API_KEY` in the ignored `.env` first. Default fictional customer: Amira Haddad. Demo-only staff: `novacart` / `support@novacart.test` / `synthetic-demo-password`.
 
 ## Exact fictional scenarios
 
@@ -23,7 +23,7 @@ Open `http://localhost:3000`. Default customer: Amira Haddad. Demo-only staff: `
 | Address confirmation | Amira / `NC-1001` | `Change shipping address NC-1001 immediately; recipient: Amira Haddad; line1: 10 Demo Street; city: Boston; region: MA; postal code: 02113; country code: US` |
 | Eligible refund | Amira / `NC-1004`, `MSE-PRO`, USD 69 | `Refund order NC-1004; reason: changed mind; SKU: MSE-PRO; quantity: 1; amount: USD 69.00` |
 | Ineligible refund | Lucas / `NC-1006`, `CASE-RED` | `Refund order NC-1006; reason: changed mind; SKU: CASE-RED; quantity: 1; amount: USD 19.00` |
-| CRM consent | Amira | `I want an enterprise product demo and consent to being contacted by sales by email` |
+| CRM consent | Amira | `Book an enterprise product demo for Acme; interest: support API; need: scale customer care; contact: email. I consent to sales contact.` |
 | Low confidence | Amira / `NC-9999` | `Track my order NC-9999` |
 | Staff lifecycle | Latest “explicit human request” | Claim → reply → Resolve → Return to AI |
 
@@ -53,10 +53,21 @@ Recommended screen order: README diagrams → FAQ → order → address → refu
 
 ## Screenshot regeneration
 
-The gallery comes from `frontend/e2e/portfolio.spec.ts` against an isolated deterministic Compose project. Normal acceptance runs exclude this tagged capture test. Regenerate and safely clean its unique volumes with:
+The gallery comes from `frontend/e2e/portfolio.spec.ts` against an isolated OpenAI Compose project with mock commerce and CRM. Normal acceptance runs exclude this tagged capture test. Regenerate and safely clean its unique volumes with:
 
 ```powershell
 .\scripts\capture-portfolio.ps1
 ```
 
 Never point it at persistent personal data or live providers.
+
+## Current routing and interface checks
+
+- Send `hi`: the greeting stays in AI mode.
+- Send `What is the capital of Japan?`: NovaCart explains its support scope without creating a ticket.
+- Try conversation search and suggested questions; watch the loading indicator while a response is pending.
+- Ask `I need a human representative`. In staff, search for Amira and open the ticket in her customer group. The first public reply claims the unassigned ticket; private notes remain staff-only.
+- Resolve and Return to AI are separate actions. For the Closed filter, claim a second ticket and choose Close. Return to AI supports in-progress or resolved tickets, not closed tickets.
+- Capture the dark/mint desktop and mobile layouts; reduced-motion preferences disable decorative animation.
+
+Capture uses OpenAI, local retrieval fixtures, and fictional provider data. Responses may vary. No Shopify or HubSpot APIs are called.

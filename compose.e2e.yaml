@@ -29,7 +29,7 @@ services:
       NOVACART_ACTOR_CONCURRENT_RUNS: "20"
       NOVACART_TENANT_DAILY_TOKEN_BUDGET: "100000000"
       NOVACART_TENANT_DAILY_COST_BUDGET_USD: "10000"
-    command: ["sh", "-c", "alembic upgrade head && python -m app.seed && python -m app.knowledge.seed && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seed && python -m app.knowledge.seed && exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000"]
   worker:
     environment:
       NOVACART_POSTGRES_HOST: postgres
@@ -37,7 +37,7 @@ services:
       NOVACART_POSTGRES_USER: novacart
       NOVACART_POSTGRES_PASSWORD: isolated-e2e-password
       NOVACART_APP_ENV: test
-      NOVACART_AGENT_PROVIDER: deterministic
+      NOVACART_AGENT_PROVIDER: ${E2E_AGENT_PROVIDER:-deterministic}
       NOVACART_EMBEDDING_PROVIDER: fake
       NOVACART_RERANKER_PROVIDER: deterministic
       NOVACART_RETRIEVAL_MIN_RERANKER_SCORE: "-100"

@@ -1,27 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 action="${1:-start}"
-project="novacart-demo"
+project="${NOVACART_DEMO_PROJECT:-novacart-demo}"
+[[ "$project" =~ ^novacart-demo(-[a-z0-9]+)*$ ]] || { echo "Invalid demo project name" >&2; exit 2; }
 compose=(docker compose -p "$project" -f compose.yaml -f compose.demo.yaml)
 
 [[ -f .env ]] || cp .env.example .env
 case "$action" in
-  start|deterministic)
-    DEMO_APP_ENV=test DEMO_AGENT_PROVIDER=deterministic "${compose[@]}" up --build --wait -d
-    echo "NovaCart demo is ready at http://localhost:3000 (deterministic mode)."
-    ;;
-  openai)
-    : "${NOVACART_OPENAI_API_KEY:?Set NOVACART_OPENAI_API_KEY before starting OpenAI mode.}"
-    DEMO_APP_ENV=development DEMO_AGENT_PROVIDER=openai "${compose[@]}" up --build --wait -d
+  start|openai)
+    DEMO_APP_ENV=development "${compose[@]}" up --build --wait -d
     echo "NovaCart demo is ready at http://localhost:3000 (OpenAI generation mode)."
     ;;
   seed) "${compose[@]}" exec -T api sh -c 'python -m app.seed && python -m app.knowledge.seed' ;;
   reset)
-    # The fixed project name scopes deletion to NovaCart's fictional demo volumes.
+    # The validated project name scopes deletion to the selected fictional demo volumes.
     "${compose[@]}" down --volumes --remove-orphans
-    DEMO_APP_ENV=test DEMO_AGENT_PROVIDER=deterministic "${compose[@]}" up --build --wait -d
+    DEMO_APP_ENV=development "${compose[@]}" up --build --wait -d
     ;;
   stop) "${compose[@]}" stop ;;
   clean) "${compose[@]}" down --volumes --remove-orphans ;;
-  *) echo "Usage: scripts/demo.sh {start|deterministic|openai|seed|reset|stop|clean}" >&2; exit 2 ;;
+  *) echo "Usage: scripts/demo.sh {start|openai|seed|reset|stop|clean}" >&2; exit 2 ;;
 esac

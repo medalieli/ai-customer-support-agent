@@ -93,7 +93,9 @@ class OpenAIHandoffSummaryModel:
 def explicit_human_request(message: str) -> bool:
     return bool(
         re.search(
-            r"\b(human|real person|agent|representative|support person|conseiller|humain|"
+            r"\b(human|real person|agent|representative|support person|someone|somebody|"
+            r"talk (?:to|with) (?:a )?(?:person|someone|somebody)|"
+            r"speak (?:to|with) (?:a )?(?:person|someone|somebody)|conseiller|humain|"
             r"personne r[ée]elle|service client)\b",
             message.casefold(),
         )
@@ -417,7 +419,11 @@ class HandoffService:
     ) -> SupportTicket:
         ticket = await self.session.scalar(
             select(SupportTicket)
-            .where(SupportTicket.organization_id == organization_id, SupportTicket.id == ticket_id)
+            .where(
+                SupportTicket.organization_id == organization_id,
+                SupportTicket.id == ticket_id,
+                SupportTicket.deleted_at.is_(None),
+            )
             .with_for_update()
         )
         if ticket is None:
@@ -483,9 +489,15 @@ class HandoffService:
                     pending.status, pending.failure_code = RecordStatus.CANCELLED, "STAFF_TAKEOVER"
                 event = "ai.resumed"
             else:
-                ticket.status = TicketStatus.RESOLVED
-                conversation.status = ConversationStatus.RESOLVED
-                conversation.ownership_state = "resolved"
+                ticket.status = (
+                    TicketStatus.RESOLVED if action == "resolve" else TicketStatus.CLOSED
+                )
+                conversation.status = (
+                    ConversationStatus.RESOLVED
+                    if action == "resolve"
+                    else ConversationStatus.CLOSED
+                )
+                conversation.ownership_state = "resolved" if action == "resolve" else "closed"
                 event = "ticket.resolved" if action == "resolve" else "ticket.closed"
             ticket.resolved_at = datetime.now(timezone.utc)
         else:
@@ -519,6 +531,8 @@ class HandoffService:
                             if action == "claim"
                             else "returned_to_ai"
                             if action == "return_to_ai"
+                            else "closed"
+                            if action == "close"
                             else "resolved",
                             assigned_staff_ref=str(staff_id),
                             version=current.version,
@@ -531,7 +545,7 @@ class HandoffService:
             "staff.joined": "staff_joined",
             "staff.replied": "staff_replied",
             "ticket.resolved": "resolved",
-            "ticket.closed": "resolved",
+            "ticket.closed": "closed",
             "ai.resumed": "ai_resumed",
         }.get(event)
         if public_event:

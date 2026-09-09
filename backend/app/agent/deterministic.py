@@ -1,5 +1,6 @@
 """Deterministic model substitutes allowed only by explicit test configuration."""
 
+import re
 from typing import Literal
 
 from app.agent.answers import GroundedAnswer
@@ -17,15 +18,57 @@ class DeterministicTriageModel:
 
     async def classify(self, message: str) -> TriageOutput:
         text = message.casefold()
-        if any(word in text for word in ("human", "representative", "humain", "conseiller")):
+        address = any(word in text for word in ("address", "adress", "addres", "adresse"))
+        address_question = address and bool(
+            re.search(r"\b(can|could|may|possible|allowed|policy|puis-je|peut-on)\b", text)
+        )
+        if re.fullmatch(r"\s*(?:hi|hello|hey|thanks|thank you|bonjour|salut|merci)[!.?\s]*", text):
+            label = IntentLabel.SMALL_TALK
+        elif any(
+            word in text
+            for word in (
+                "weather",
+                "bitcoin",
+                "recipe",
+                "météo",
+                "recette",
+                "python",
+                "amazon",
+                "system prompt",
+                "internal instructions",
+                "capital of",
+            )
+        ):
+            label = IntentLabel.UNSUPPORTED
+        elif any(
+            word in text
+            for word in (
+                "human",
+                "representative",
+                "someone",
+                "somebody",
+                "real person",
+                "humain",
+                "conseiller",
+                "manager",
+                "agent du support",
+                "support agent",
+            )
+        ):
             label = IntentLabel.HUMAN_HELP
-        elif any(word in text for word in ("address", "adresse")):
+        elif address_question:
+            label = IntentLabel.KNOWLEDGE
+        elif address:
             label = IntentLabel.ACCOUNT_CHANGE
-        elif any(word in text for word in ("refund", "rembours")):
+        elif any(word in text for word in ("policy", "politique", "warranty", "garantie")):
+            label = IntentLabel.KNOWLEDGE
+        elif any(word in text for word in ("refund", "rembours", "money back", "return the")):
             label = IntentLabel.REFUND
-        elif any(word in text for word in ("sales", "enterprise", "demo", "devis")):
+        elif any(word in text for word in ("sales", "enterprise", "demo", "devis", "commercial")):
             label = IntentLabel.SALES_LEAD
-        elif any(word in text for word in ("order", "track", "commande", "suivi")):
+        elif re.search(r"\bnc-\d+\b", text) or any(
+            word in text for word in ("order", "track", "commande", "suivi")
+        ):
             label = IntentLabel.ORDER_STATUS
         elif any(word in text for word in ("weather", "bitcoin", "recipe", "météo", "recette")):
             label = IntentLabel.UNSUPPORTED
@@ -42,7 +85,6 @@ class DeterministicAnswerModel:
     async def answer(
         self, question: str, language: Literal["en", "fr"], evidence: list[dict[str, str]]
     ) -> GroundedAnswer:
-        del question
         if not evidence:
             return GroundedAnswer(
                 supported=False,
@@ -52,12 +94,21 @@ class DeterministicAnswerModel:
                     else "Insufficient information."
                 ),
             )
+        passage = evidence[0].get("text") or evidence[0].get("snippet")
+        if not passage:
+            passage = (
+                "Les informations de politique sont disponibles."
+                if language == "fr"
+                else "Policy information is available."
+            )
+        sentences = re.split(r"(?<=[.!?])\s+", passage.strip())
+        concise = " ".join(sentences[:2])[:500]
         prefix = (
-            "Selon la politique NovaCart : " if language == "fr" else "NovaCart policy states: "
+            "Voici la règle applicable : " if language == "fr" else "Here’s the relevant policy: "
         )
         return GroundedAnswer(
             supported=True,
-            answer=prefix + evidence[0].get("snippet", "Policy information is available."),
+            answer=prefix + concise,
             citation_receipt_ids=[evidence[0]["receipt_id"]],
         )
 

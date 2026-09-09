@@ -1,6 +1,7 @@
 import os
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
+from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.dependencies import get_db_session
 from app.core.config import Settings
-from app.domain.models import AuditEvent, CustomerSession
+from app.domain.models import AuditEvent, Conversation, CustomerSession, SupportTicket, TicketStatus
 from app.infrastructure.database import create_database_engine, set_tenant_scope
 from app.main import create_app
 from app.seed import CUSTOMERS, ORGANIZATIONS, seed
@@ -60,6 +61,91 @@ async def login_customer(client: AsyncClient, persona: str, organization: str = 
         json={"organization_slug": organization, "persona_key": persona},
     )
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_ticket_close_and_soft_delete_authorization(
+    integration_client: tuple[AsyncClient, async_sessionmaker[AsyncSession]],
+) -> None:
+    client, factory = integration_client
+    await login_customer(client, "amira-en")
+    created = await client.post("/api/v1/conversations", json={"title": "Release lifecycle"})
+    conversation_id = UUID(created.json()["id"])
+    async with factory() as session:
+        ticket = SupportTicket(
+            id=uuid4(),
+            organization_id=ORGANIZATIONS[0].id,
+            conversation_id=conversation_id,
+            reason_code="explicit_human_request",
+            priority="normal",
+            status=TicketStatus.OPEN,
+            summary={},
+            version=1,
+        )
+        session.add(ticket)
+        await session.commit()
+        ticket_id = ticket.id
+    path = f"/api/v1/staff/tickets/{ticket_id}"
+    assert (await client.get(path)).status_code == 403
+    assert (await client.delete(path, params={"version": 1})).status_code == 403
+    client.cookies.clear()
+    staff = await client.post(
+        "/api/v1/auth/staff-login",
+        json={
+            "organization_slug": "novacart",
+            "email": "support@novacart.test",
+            "password": "synthetic-demo-password",
+        },
+    )
+    assert staff.status_code == 200
+    details = await client.get(path)
+    assert details.json()["customer_name"] == "Amira Haddad"
+    assert (await client.delete(path, params={"version": 1})).status_code == 409
+    assert (await client.get("/api/v1/staff/tickets?status=invalid")).status_code == 422
+    claimed = await client.post(
+        path + "/claim",
+        json={"version": 1},
+        headers={
+            "Idempotency-Key": f"claim-{ticket_id}",
+        },
+    )
+    assert claimed.status_code == 200
+    closed = await client.post(
+        path + "/close",
+        json={"version": 2},
+        headers={
+            "Idempotency-Key": f"close-{ticket_id}",
+        },
+    )
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "closed"
+    queue = (await client.get("/api/v1/staff/tickets?status=closed")).json()
+    assert str(ticket_id) in [item["id"] for item in queue]
+    resumed = await client.post(
+        path + "/return_to_ai",
+        json={"version": 3},
+        headers={
+            "Idempotency-Key": f"resume-{ticket_id}",
+        },
+    )
+    assert resumed.status_code == 409
+    assert (await client.delete(path, params={"version": 2})).status_code == 409
+    assert (await client.delete(path, params={"version": 3})).status_code == 204
+    assert (await client.get(path)).status_code == 404
+    assert (await client.delete(path, params={"version": 4})).status_code == 404
+    client.cookies.clear()
+    await login_customer(client, "nora-en", "orbit-outlet")
+    conversation_path = f"/api/v1/conversations/{conversation_id}"
+    assert (await client.delete(conversation_path)).status_code == 404
+    client.cookies.clear()
+    await login_customer(client, "amira-en")
+    assert (await client.delete(conversation_path)).status_code == 204
+    assert (await client.get(conversation_path)).status_code == 404
+    async with factory() as session:
+        stored = await session.get(Conversation, conversation_id)
+        stored_ticket = await session.get(SupportTicket, ticket_id)
+        assert stored is not None and stored.customer_deleted_at is not None
+        assert stored_ticket is not None and stored_ticket.deleted_at is not None
 
 
 @pytest.mark.asyncio

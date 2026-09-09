@@ -294,10 +294,12 @@ async def test_authoritative_order_sync_once_ordered_and_multi_conversation(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("terminal_status", ["resolved", "closed"])
 async def test_crm_assignment_public_reply_and_internal_note_privacy(
     setup: tuple[
         AsyncSession, Settings, Customer, Conversation, ProviderConnection, ProviderConnection
     ],
+    terminal_status: str,
 ) -> None:
     session, settings, customer, conversation, _, connection = setup
     ticket_ref = f"ticket-{conversation.id}"
@@ -406,3 +408,39 @@ async def test_crm_assignment_public_reply_and_internal_note_privacy(
         select(func.count(Message.id)).where(Message.conversation_id == conversation.id)
     )
     assert count == len(visible)
+    crm.ticket = ticket.model_copy(
+        update={
+            "status": terminal_status,
+            "version": "3",
+            "updated_at": now + timedelta(seconds=2),
+        }
+    )
+    terminal_raw = json.dumps(
+        {
+            "ticket_ref": ticket_ref,
+            "occurred_at": (now + timedelta(seconds=2)).isoformat(),
+        }
+    ).encode()
+    terminal, _ = await accept(
+        session,
+        settings,
+        "mock_crm",
+        connection.endpoint_key,
+        terminal_raw,
+        crm_signature(
+            terminal_raw,
+            f"crm-terminal-{conversation.id}",
+            "ticket.resolved",
+            settings.mock_crm_webhook_secret.get_secret_value(),
+        ),
+        "POST",
+        "http://test",
+    )
+    assert (
+        await process(session, settings, terminal.id, crm=cast(CrmProviderV1, crm)) == "processed"
+    )
+    await session.refresh(local)
+    await session.refresh(conversation)
+    assert local.status.value == terminal_status
+    assert conversation.status.value == terminal_status
+    assert conversation.ownership_state == terminal_status

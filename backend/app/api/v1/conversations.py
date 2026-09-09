@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Query
@@ -12,6 +12,28 @@ from app.services.audit import AuditService
 from app.services.auth import AuthorizationError, ResourceNotFoundError
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+
+@router.delete("/{conversation_id}", status_code=204)
+async def delete_conversation(
+    conversation_id: UUID, principal: CurrentPrincipal, session: DatabaseSession
+) -> None:
+    if principal.kind != "customer":
+        raise AuthorizationError
+    conversation = await authorized_conversation(
+        ConversationRepository(session), principal, conversation_id, session
+    )
+    conversation.customer_deleted_at = datetime.now(timezone.utc)
+    await AuditService(session).record(
+        principal.organization_id,
+        "customer",
+        "conversation.delete",
+        "success",
+        actor_id=principal.subject_id,
+        target_type="conversation",
+        target_id=conversation.id,
+    )
+    await session.commit()
 
 
 class ConversationCreate(BaseModel):

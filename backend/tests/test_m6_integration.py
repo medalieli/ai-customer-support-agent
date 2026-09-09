@@ -311,6 +311,9 @@ async def test_staff_ticket_api_rbac_claim_reply_note_resolve(
     queue = await client.get("/api/v1/staff/tickets", params={"status": "open"})
     assert queue.status_code == 200
     ticket = next(item for item in queue.json() if item["conversation_id"] == str(conversation_id))
+    assert ticket["customer_name"] == "Amira Haddad"
+    assert ticket["customer_email"] == "amira@synthetic.test"
+    assert ticket["customer_locale"] == "en"
     ticket_id = ticket["id"]
     get_ticket = await client.get(f"/api/v1/staff/tickets/{ticket_id}")
     assert get_ticket.status_code == 200

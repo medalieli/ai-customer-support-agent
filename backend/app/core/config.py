@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     agent_model: str = "gpt-5-mini"
     agent_provider: Literal["openai", "deterministic"] = "openai"
-    agent_model_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    agent_model_timeout_seconds: float = Field(default=30.0, gt=0, le=60)
     agent_max_steps: int = Field(default=8, ge=1, le=20)
     customer_rate_limit_per_minute: int = Field(default=30, ge=1, le=1000)
     actor_rate_limit_per_minute: int = Field(default=12, ge=1, le=1000)

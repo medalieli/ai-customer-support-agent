@@ -1,8 +1,10 @@
 services:
   api:
     environment:
-      NOVACART_APP_ENV: ${DEMO_APP_ENV:-test}
-      NOVACART_AGENT_PROVIDER: ${DEMO_AGENT_PROVIDER:-deterministic}
+      COMMERCE_PROVIDER: mock
+      CRM_PROVIDER: mock
+      NOVACART_APP_ENV: ${DEMO_APP_ENV:-development}
+      NOVACART_AGENT_PROVIDER: openai
       NOVACART_EMBEDDING_PROVIDER: fake
       NOVACART_RERANKER_PROVIDER: deterministic
       NOVACART_RETRIEVAL_MIN_RERANKER_SCORE: "-100"
@@ -10,18 +12,20 @@ services:
       NOVACART_DEMO_STAFF_PASSWORD: synthetic-demo-password
       NOVACART_MOCK_COMMERCE_INTERNAL_API_KEY: development-commerce-key
       NOVACART_MOCK_CRM_INTERNAL_API_KEY: development-crm-key
-      NOVACART_OPENAI_API_KEY: ${NOVACART_OPENAI_API_KEY:-}
-    command: ["sh", "-c", "alembic upgrade head && python -m app.seed && python -m app.knowledge.seed && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+      NOVACART_OPENAI_API_KEY: ${NOVACART_OPENAI_API_KEY:?Set NOVACART_OPENAI_API_KEY in .env}
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seed && python -m app.knowledge.seed && exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000"]
   worker:
     environment:
-      NOVACART_APP_ENV: ${DEMO_APP_ENV:-test}
-      NOVACART_AGENT_PROVIDER: ${DEMO_AGENT_PROVIDER:-deterministic}
+      COMMERCE_PROVIDER: mock
+      CRM_PROVIDER: mock
+      NOVACART_APP_ENV: ${DEMO_APP_ENV:-development}
+      NOVACART_AGENT_PROVIDER: openai
       NOVACART_EMBEDDING_PROVIDER: fake
       NOVACART_RERANKER_PROVIDER: deterministic
       NOVACART_RETRIEVAL_MIN_RERANKER_SCORE: "-100"
       NOVACART_DEMO_AUTH_ENABLED: "true"
       NOVACART_DEMO_STAFF_PASSWORD: synthetic-demo-password
-      NOVACART_OPENAI_API_KEY: ${NOVACART_OPENAI_API_KEY:-}
+      NOVACART_OPENAI_API_KEY: ${NOVACART_OPENAI_API_KEY:?Set NOVACART_OPENAI_API_KEY in .env}
   mock-commerce:
     environment:
       MOCK_COMMERCE_INTERNAL_API_KEY: development-commerce-key

@@ -6,13 +6,13 @@ A full-stack AI support agent that grounds policy answers in cited knowledge, ex
 
 ## Short description
 
-NovaCart demonstrates production-minded AI support without vendor accounts: real LangGraph orchestration, PostgreSQL/pgvector RAG, Redis-backed work, FastAPI/SSE, a polished customer/staff UI, and persistent mock commerce/CRM services. Consequential actions are checked, confirmed, idempotent, tenant-scoped, and observable.
+NovaCart demonstrates production-minded AI support with OpenAI and without commerce/CRM vendor accounts: real LangGraph orchestration, PostgreSQL/pgvector RAG, Redis-backed work, FastAPI/SSE, a polished customer/staff UI, and persistent mock commerce/CRM services. Consequential actions are checked, confirmed, idempotent, tenant-scoped, and observable.
 
 ## Longer GitHub / Upwork description
 
-NovaCart is an end-to-end reference implementation for safe AI customer support. Customers receive cited policy answers, track orders, request refunds, update addresses, opt into sales contact, or escalate to a person. LangGraph routes turns and persists checkpoints; PostgreSQL/pgvector powers tenant state and retrieval; Redis supports bounded execution; FastAPI streams progress to Next.js. Writes pause for approval and use idempotency. Staff can claim tickets, publicly reply, privately note, resolve, return to AI, inspect analytics, and review audit history.
+NovaCart is an end-to-end reference implementation for safe AI customer support. Customers receive cited policy answers, track orders, request refunds, update addresses, opt into sales contact, or escalate to a person. LangGraph routes turns and persists checkpoints; PostgreSQL/pgvector powers tenant state and retrieval; Redis supports bounded execution; FastAPI streams progress to Next.js. Writes pause for approval and use idempotency. Staff can claim tickets, publicly reply, privately note, resolve, close, return to AI, inspect analytics, and review audit history.
 
-It runs entirely with fictional persistent REST providers. Shopify/HubSpot adapters are contract-tested and configurable. The repository includes deterministic evaluations, Playwright journeys, coverage gates, observability, a hardened production-like stack, backup/restore, supply-chain checks, and reproducible local load tests. It does not claim live vendor verification, cloud deployment, production traffic, or universal performance.
+Customer-facing AI responses require OpenAI; commerce and CRM use fictional persistent REST providers. Shopify/HubSpot adapters are contract-tested and configurable. The repository includes deterministic evaluations, Playwright journeys, coverage gates, observability, a hardened production-like stack, backup/restore, supply-chain checks, and reproducible local load tests. It does not claim live vendor verification, cloud deployment, production traffic, or universal performance.
 
 ## Five feature bullets
 
@@ -29,7 +29,7 @@ Python, FastAPI, LangGraph, SQLAlchemy, Alembic, PostgreSQL, pgvector, Redis, AR
 ## CV-ready achievements
 
 - Engineered a multi-tenant LangGraph workflow combining cited RAG, provider tools, persisted checkpoints, confirmation gates, idempotency, and staffed escalation.
-- Built contract-tested provider adapters and persistent mock REST services so full customer journeys run without external accounts.
+- Built contract-tested provider adapters and persistent mock REST services so full customer journeys run without Shopify or HubSpot accounts.
 - Established evidence across coverage gates, restricted-role RLS, TLS/security tests, observability, backup/restore, scanning, and a 102-workflow local load baseline.
 
 ## Five interview talking points

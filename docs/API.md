@@ -11,7 +11,9 @@ Admin staff. Customers are denied, and the response contains no raw conversation
 
 Escalation creates at most one active tenant-scoped ticket per conversation and changes ownership
 from `ai_active` to `handoff_pending`. A successful staff claim changes it to `staff_active`; resolve
-changes it to `resolved`, while return-to-AI closes the ticket and restores `ai_active`. During
+changes it to `resolved`; close uses a separate `closed` status. Return-to-AI leaves the ticket
+resolved and restores `ai_active` on an open conversation. It accepts in-progress or resolved
+tickets owned by the acting staff member, not closed tickets. During
 handoff or staff ownership, customer messages remain durable but the agent does not answer or run
 tools.
 

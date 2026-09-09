@@ -1,0 +1,92 @@
+/* Shared dark palette; layout and reduced-motion rules remain in nextgen.css. */
+:root {
+  color-scheme: dark;
+  --navy: #0d1919;
+  --blue: #9ce8c7;
+  --ink: #e7eeec;
+  --muted: #a8b8b3;
+  --line: #30433d;
+  --soft: #15221e;
+  --ok: #a3edc9;
+  --bad: #ffb1b7;
+  --surface: #101c19;
+  --raised: #1b2b25;
+  background: var(--navy);
+  color: var(--ink);
+}
+body, .chat, .login-shell, .login-panel { background: var(--navy); }
+.sidebar, .topbar, .stream-state, .login-story { background: var(--surface); }
+.search {
+  color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
+}
+.staff .sidebar > .search:has(select) {
+  background: #f4faf7;
+  color: #10241b;
+  -webkit-text-fill-color: #10241b;
+  padding: .5rem;
+  border-radius: 6px;
+}
+.ticket-detail { background: var(--navy); }
+.login-story { border-color: var(--line); }
+.login-story h1 { font-family: Arial, Helvetica, sans-serif; font-weight: 500; }
+.login-story p, .login-story footer, .brand small, .brand.light small,
+.brand-signature small, .message header, .message header time { color: var(--muted); }
+.login-story footer, .support-services > div { border-color: var(--line); }
+.brand.brand-signature .brand-wordmark, .brand.light { color: var(--ink); }
+.brand-mark path { fill: #a3edc9; }
+.brand-mark path:last-child { fill: #5d9d82; }
+button, input, textarea, select, .composer {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line);
+}
+select, select option {
+  color-scheme: light;
+  background-color: #f4faf7;
+  color: #10241b;
+  -webkit-text-fill-color: #10241b;
+}
+input::placeholder, textarea::placeholder { color: #a0b0aa; }
+button:hover:not(:disabled), .quick-actions button:hover:not(:disabled) {
+  background: #263e33;
+  border-color: #70b698;
+}
+.primary, .composer button, .login-card .primary {
+  background: #a3edc9;
+  border-color: #a3edc9;
+  color: #10241b;
+}
+.primary:hover:not(:disabled), .composer button:hover:not(:disabled) {
+  background: #c0f5dc;
+  border-color: #c0f5dc;
+  color: #10241b;
+}
+:focus-visible { outline: 2px solid #a3edc9; outline-offset: 3px; }
+input:focus, textarea:focus, select:focus { border-color: #a3edc9; outline-color: #a3edc9; }
+.tabs, .customer-details > div, .summary-fields > div { background: var(--soft); }
+.tabs button[aria-selected=true] { background: #2c4639; color: #bbf4d9; box-shadow: none; }
+.nav-item.active, .ticket-row.active { background: #243d31; border-color: #467a61; color: #c3f3dd; }
+.customer-ticket-group .ticket-row { border-left-color: #426653; }
+.customer-ticket-group > header span, .audit-kind { background: #284234; color: #bcf2d4; }
+.ownership { background: #213b2d; color: #a3edc9; border-color: #467a61; }
+.message, .message.system_event { background: var(--raised); border-color: var(--line); }
+.message.customer { background: #244635; border-color: #406d52; color: #e8f9ef; }
+.message.staff { background: #23392d; border-color: #73be95; }
+.message p, .empty h2 { color: inherit; }
+.quick-actions button, .confirmation, .summary-card, .staff-thread,
+.audit-timeline, .staff-composers form, .metric-grid article, .analytics-groups article {
+  background: var(--surface);
+  border-color: var(--line);
+}
+.citations article, .citations aside { background: var(--soft); border-color: var(--line); }
+.citations summary, .citations .valid, .metric-grid strong { color: #a3edc9; }
+.citations blockquote, .citations p { color: var(--muted); }
+.private-note { background: #332d1f !important; color: #f3e8c9; }
+.alert { background: #3a2228; border-color: #81505c; color: #ffccd0; }
+.danger-button { background: transparent; border-color: #81505c; color: #ffb1b7; }
+.danger-button:hover:not(:disabled) { background: #4b2830; border-color: #c18a95; }
+.text-button { background: transparent; color: var(--muted); }
+.brand > span, .brand.light > span { background: #a3edc9; color: #10241b; }
+a { color: #a3edc9; }
+::selection { background: #48745c; color: #fff; }

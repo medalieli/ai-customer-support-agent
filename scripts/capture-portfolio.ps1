@@ -10,7 +10,7 @@ $env:NEXT_PUBLIC_API_URL = "http://localhost:18000"
 $env:PLAYWRIGHT_BASE_URL = "http://localhost:13000"
 $env:E2E_RUN_ID = $runId
 $env:E2E_PROJECT = $project
-$env:E2E_AGENT_PROVIDER = "deterministic"
+$env:E2E_AGENT_PROVIDER = "openai"
 $compose = @("-p", $project, "-f", "compose.yaml", "-f", "compose.e2e.yaml")
 try {
     docker compose @compose up --build --wait -d

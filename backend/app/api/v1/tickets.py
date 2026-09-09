@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_, select
 
@@ -9,6 +9,7 @@ from app.api.dependencies import CurrentPrincipal, DatabaseSession, RequestSetti
 from app.domain.models import (
     AuditEvent,
     Conversation,
+    Customer,
     PendingAction,
     RefundDecisionRecord,
     Role,
@@ -17,6 +18,7 @@ from app.domain.models import (
     WebhookConversationEffect,
 )
 from app.providers.factory import create_crm_provider
+from app.services.audit import AuditService
 from app.services.auth import AuthorizationError, ResourceNotFoundError
 from app.services.handoff import HandoffError, HandoffService
 
@@ -34,6 +36,10 @@ class TicketResponse(BaseModel):
     summary: dict[str, object]
     version: int
     created_at: datetime
+    customer_id: UUID
+    customer_name: str
+    customer_email: str
+    customer_locale: str
 
 
 class TransitionRequest(BaseModel):
@@ -85,7 +91,7 @@ def _staff(principal: CurrentPrincipal) -> None:
         raise AuthorizationError
 
 
-def _response(ticket: SupportTicket) -> TicketResponse:
+def _response(ticket: SupportTicket, customer: Customer) -> TicketResponse:
     return TicketResponse(
         id=ticket.id,
         conversation_id=ticket.conversation_id,
@@ -96,6 +102,10 @@ def _response(ticket: SupportTicket) -> TicketResponse:
         summary=ticket.summary,
         version=ticket.version,
         created_at=ticket.created_at,
+        customer_id=customer.id,
+        customer_name=customer.display_name,
+        customer_email=customer.email,
+        customer_locale=customer.locale,
     )
 
 
@@ -104,7 +114,27 @@ async def list_queue(
     principal: CurrentPrincipal, session: DatabaseSession, status: str | None = Query(default=None)
 ) -> list[TicketResponse]:
     _staff(principal)
-    query = select(SupportTicket).where(SupportTicket.organization_id == principal.organization_id)
+    query = (
+        select(SupportTicket, Customer)
+        .join(
+            Conversation,
+            and_(
+                Conversation.organization_id == SupportTicket.organization_id,
+                Conversation.id == SupportTicket.conversation_id,
+            ),
+        )
+        .join(
+            Customer,
+            and_(
+                Customer.organization_id == Conversation.organization_id,
+                Customer.id == Conversation.customer_id,
+            ),
+        )
+        .where(
+            SupportTicket.organization_id == principal.organization_id,
+            SupportTicket.deleted_at.is_(None),
+        )
+    )
     if status:
         try:
             query = query.where(SupportTicket.status == TicketStatus(status))
@@ -112,8 +142,8 @@ async def list_queue(
             from fastapi import HTTPException
 
             raise HTTPException(status_code=422, detail="invalid_status") from exc
-    items = await session.scalars(query.order_by(SupportTicket.created_at))
-    return [_response(item) for item in items]
+    items = await session.execute(query.order_by(Customer.display_name, SupportTicket.created_at))
+    return [_response(ticket, customer) for ticket, customer in items.all()]
 
 
 @router.get("/{ticket_id}", response_model=TicketResponse)
@@ -121,15 +151,72 @@ async def get_ticket(
     ticket_id: UUID, principal: CurrentPrincipal, session: DatabaseSession
 ) -> TicketResponse:
     _staff(principal)
+    row = (
+        await session.execute(
+            select(SupportTicket, Customer)
+            .join(
+                Conversation,
+                and_(
+                    Conversation.organization_id == SupportTicket.organization_id,
+                    Conversation.id == SupportTicket.conversation_id,
+                ),
+            )
+            .join(
+                Customer,
+                and_(
+                    Customer.organization_id == Conversation.organization_id,
+                    Customer.id == Conversation.customer_id,
+                ),
+            )
+            .where(
+                SupportTicket.organization_id == principal.organization_id,
+                SupportTicket.id == ticket_id,
+                SupportTicket.deleted_at.is_(None),
+            )
+        )
+    ).one_or_none()
+    if row is None:
+        raise ResourceNotFoundError
+    return _response(row[0], row[1])
+
+
+@router.delete("/{ticket_id}", status_code=204)
+async def delete_ticket(
+    ticket_id: UUID,
+    principal: CurrentPrincipal,
+    session: DatabaseSession,
+    version: int = Query(ge=1),
+) -> None:
+    _staff(principal)
     ticket = await session.scalar(
-        select(SupportTicket).where(
+        select(SupportTicket)
+        .where(
             SupportTicket.organization_id == principal.organization_id,
             SupportTicket.id == ticket_id,
+            SupportTicket.deleted_at.is_(None),
         )
+        .with_for_update()
     )
     if ticket is None:
         raise ResourceNotFoundError
-    return _response(ticket)
+    if ticket.version != version:
+        raise HTTPException(status_code=409, detail="The ticket changed. Refresh and try again.")
+    if ticket.status not in {TicketStatus.CLOSED, TicketStatus.RESOLVED}:
+        raise HTTPException(
+            status_code=409, detail="Close or resolve this ticket before deleting it."
+        )
+    ticket.deleted_at = datetime.now(timezone.utc)
+    ticket.version += 1
+    await AuditService(session).record(
+        principal.organization_id,
+        "staff",
+        "ticket.delete",
+        "success",
+        actor_id=principal.subject_id,
+        target_type="ticket",
+        target_id=ticket.id,
+    )
+    await session.commit()
 
 
 @router.get("/{ticket_id}/audit", response_model=AuditTimelinePage)
@@ -291,4 +378,20 @@ async def transition(
 
         raise HTTPException(status_code=409, detail=exc.code) from exc
     await session.commit()
-    return _response(ticket)
+    customer = await session.scalar(
+        select(Customer)
+        .join(
+            Conversation,
+            and_(
+                Conversation.organization_id == Customer.organization_id,
+                Conversation.customer_id == Customer.id,
+            ),
+        )
+        .where(
+            Conversation.organization_id == principal.organization_id,
+            Conversation.id == ticket.conversation_id,
+        )
+    )
+    if customer is None:
+        raise ResourceNotFoundError
+    return _response(ticket, customer)

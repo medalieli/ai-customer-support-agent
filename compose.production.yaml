@@ -71,7 +71,7 @@ services:
       NOVACART_POSTGRES_PASSWORD_FILE: /run/secrets/postgres_runtime_password
       NOVACART_REDIS_PASSWORD_FILE: /run/secrets/redis_password
     secrets: [postgres_runtime_password, redis_password]
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "proxy"]
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "proxy"]
     depends_on: {migrate: {condition: service_completed_successfully}, redis: {condition: service_healthy}}
     networks: [data, services]
 

@@ -11,6 +11,7 @@ class IntentLabel(str, Enum):
     REFUND = "refund_request"
     SALES_LEAD = "sales_lead"
     HUMAN_HELP = "human_help"
+    SMALL_TALK = "small_talk"
     UNSUPPORTED = "unsupported_uncertain"
 
 

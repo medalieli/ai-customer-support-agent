@@ -300,7 +300,7 @@ async def test_compose_combines_validated_policy_and_live_order(
     )
     result = await graph._compose(state)
     answer = cast(list[VisibleMessage], result["messages"])[-1].content
-    assert "Policy information" in answer and "Order status" in answer
+    assert "Returns are allowed for thirty days." in answer and "Order status" in answer
     assert result["citations"] == [citation]
     assert "passages" not in repr(result["sanitized_results"])
     assert events[-1][0] == "response_completed"
