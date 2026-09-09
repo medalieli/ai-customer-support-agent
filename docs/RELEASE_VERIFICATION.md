@@ -15,7 +15,7 @@ This record is being completed from actual release checks. Pending checks are no
 | Mock CRM | 11 passed, 92.15% coverage; Ruff and strict MyPy pass |
 | Desktop/mobile Playwright | Pass: 19 desktop and 19 mobile scenarios; persistence verified after restart |
 | OpenAI browser smoke and portfolio capture | Pass: real OpenAI plus mock providers; 1 portfolio journey passed and 8 screenshots refreshed |
-| Clean-checkout quick start | Pending |
+| Clean-checkout quick start | Pass: exact commit built uncached; API ready, frontend HTTP 200, checkout clean |
 | Compose and documentation validation | Base/demo/production-like Compose pass; 44 local links/images in 48 Markdown files pass |
 | GitHub Actions | Not yet published |
 
