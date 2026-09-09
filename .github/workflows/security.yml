@@ -44,7 +44,7 @@ jobs:
       - run: PRODUCTION_ENV_FILE=.env.production.example docker compose --env-file .env.production.example -f compose.yaml -f compose.production.yaml config --quiet
       - run: docker build -t novacart-api:ci backend
       - run: docker build -t novacart-frontend:ci frontend
-      - uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+      - uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: novacart-api:ci
           severity: CRITICAL,HIGH
