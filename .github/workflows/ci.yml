@@ -31,8 +31,8 @@ jobs:
       NOVACART_DEMO_AUTH_ENABLED: "true"
       NOVACART_DEMO_STAFF_PASSWORD: synthetic-demo-password
       NOVACART_RUN_DB_TESTS: "1"
-      NOVACART_MOCK_COMMERCE_INTERNAL_API_KEY: replace-with-a-long-internal-only-key
-      NOVACART_MOCK_CRM_INTERNAL_API_KEY: replace-with-a-long-internal-only-key
+      NOVACART_MOCK_COMMERCE_INTERNAL_API_KEY: development-commerce-key
+      NOVACART_MOCK_CRM_INTERNAL_API_KEY: development-crm-key
     defaults:
       run:
         working-directory: backend
@@ -49,7 +49,7 @@ jobs:
         working-directory: .
         run: |
           cp .env.example .env
-          docker compose up --build --wait -d mock-commerce mock-crm
+          docker compose -f compose.yaml -f compose.e2e.yaml up --build --wait -d mock-commerce mock-crm
       - run: alembic upgrade head
       - run: python -m app.seed
       - run: python -m app.seed
@@ -61,7 +61,7 @@ jobs:
       - name: Stop isolated mock providers
         if: always()
         working-directory: .
-        run: docker compose down --volumes --remove-orphans
+        run: docker compose -f compose.yaml -f compose.e2e.yaml down --volumes --remove-orphans
 
   frontend:
     runs-on: ubuntu-24.04
